@@ -12,6 +12,7 @@ struct TerminalTabsRowView: View {
   let closeOthers: (TerminalTabID) -> Void
   let closeToRight: (TerminalTabID) -> Void
   let closeAll: () -> Void
+  let renameTab: (TerminalTabID, String) -> Void
   let hasNotification: (TerminalTabID) -> Bool
   let scrollReader: ScrollViewProxy
 
@@ -36,7 +37,16 @@ struct TerminalTabsRowView: View {
               onClose: {
                 closeTab(id)
               },
-              closeButtonGestureActive: $closeButtonGestureActive
+              onRename: { newTitle in
+                renameTab(id, newTitle)
+              },
+              closeButtonGestureActive: $closeButtonGestureActive,
+              isEditing: manager.editingTabID == id,
+              onBeginRename: { manager.beginTabRename(id) },
+              onEndRename: {
+                guard manager.editingTabID == id else { return }
+                manager.endTabRename()
+              }
             )
             .background(
               TerminalTabMeasurementView(
@@ -54,7 +64,8 @@ struct TerminalTabsRowView: View {
                 closeTab: closeTab,
                 closeOthers: closeOthers,
                 closeToRight: closeToRight,
-                closeAll: closeAll
+                closeAll: closeAll,
+                renameTab: { manager.beginTabRename($0) }
               )
             )
             .id(id)

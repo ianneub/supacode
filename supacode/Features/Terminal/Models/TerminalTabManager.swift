@@ -5,8 +5,15 @@ import SupacodeSettingsShared
 @MainActor
 @Observable
 final class TerminalTabManager {
-  var tabs: [TerminalTabItem] = []
+  var tabs: [TerminalTabItem] = [] {
+    // Drops `editingTabID` when the edited tab disappears across any close path.
+    didSet {
+      guard let id = editingTabID, !tabs.contains(where: { $0.id == id }) else { return }
+      editingTabID = nil
+    }
+  }
   var selectedTabId: TerminalTabID?
+  private(set) var editingTabID: TerminalTabID?
 
   private static let logger = SupaLogger("TabManager")
 
@@ -50,6 +57,13 @@ final class TerminalTabManager {
     guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
     guard !tabs[index].isTitleLocked else { return }
     tabs[index].title = title
+  }
+
+  func setCustomTitle(_ id: TerminalTabID, title: String) {
+    guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+    guard !tabs[index].isTitleLocked else { return }
+    let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+    tabs[index].customTitle = trimmed.isEmpty ? nil : trimmed
   }
 
   func unlockAndUpdateTitle(_ id: TerminalTabID, title: String) {
@@ -97,6 +111,15 @@ final class TerminalTabManager {
     if let selectedTabId, !tabs.contains(where: { $0.id == selectedTabId }) {
       self.selectedTabId = tabs.last?.id
     }
+  }
+
+  func beginTabRename(_ id: TerminalTabID) {
+    guard tabs.contains(where: { $0.id == id && !$0.isTitleLocked }) else { return }
+    editingTabID = id
+  }
+
+  func endTabRename() {
+    editingTabID = nil
   }
 
   func closeAll() {

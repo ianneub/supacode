@@ -981,12 +981,179 @@ struct WorktreeTerminalManagerTests {
     )
   }
 
+  @Test func beginTabRenameCommandUsesSelectedTabWhenNoExplicitID() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let state = manager.state(for: worktree)
+
+    guard let tabId = state.createTab() else {
+      Issue.record("Expected tab to be created")
+      return
+    }
+
+    manager.handleCommand(.beginTabRename(worktree))
+
+    #expect(state.tabManager.editingTabID == tabId)
+  }
+
+  @Test func beginTabRenameCommandUsesExplicitTabID() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let state = manager.state(for: worktree)
+
+    guard let firstTabId = state.createTab(),
+      let secondTabId = state.createTab(focusing: true)
+    else {
+      Issue.record("Expected two tabs to be created")
+      return
+    }
+    #expect(state.tabManager.selectedTabId == secondTabId)
+
+    manager.handleCommand(.beginTabRename(worktree, tabID: firstTabId))
+
+    #expect(state.tabManager.editingTabID == firstTabId)
+  }
+
+  @Test func beginTabRenameCommandIgnoresUnknownExplicitTabID() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let state = manager.state(for: worktree)
+
+    _ = state.createTab()
+
+    manager.handleCommand(.beginTabRename(worktree, tabID: TerminalTabID()))
+
+    #expect(state.tabManager.editingTabID == nil)
+  }
+
+  @Test func beginTabRenameCommandIsNoOpWhenWorktreeHasNoTabs() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let state = manager.state(for: worktree)
+
+    manager.handleCommand(.beginTabRename(worktree))
+
+    #expect(state.tabManager.editingTabID == nil)
+  }
+
+  @Test func captureLayoutSnapshotStripsCustomTitleFromBlockingScriptTab() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+
+    manager.handleCommand(.runBlockingScript(worktree, kind: .archive, script: "sleep 10"))
+
+    guard let state = manager.stateIfExists(for: worktree.id),
+      let tabId = state.tabManager.selectedTabId,
+      let index = state.tabManager.tabs.firstIndex(where: { $0.id == tabId })
+    else {
+      Issue.record("Expected blocking script tab")
+      return
+    }
+
+    // Simulate a pathological state where a customTitle landed on a blocking-script tab
+    // (e.g. from a corrupted snapshot). Direct field write bypasses the lock guard.
+    state.tabManager.tabs[index].customTitle = "my-name"
+
+    guard let snapshot = state.captureLayoutSnapshot() else {
+      Issue.record("Expected non-nil snapshot")
+      return
+    }
+
+    #expect(snapshot.tabs.first?.customTitle == nil)
+    #expect(snapshot.tabs.first?.icon == nil)
+    #expect(snapshot.tabs.first?.tintColor == nil)
+  }
+
+  @Test func captureLayoutSnapshotPreservesCustomTitleAfterBlockingScriptCompletes() async {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let stream = manager.eventStream()
+
+    manager.handleCommand(.runBlockingScript(worktree, kind: .archive, script: "echo ok"))
+
+    guard let state = manager.stateIfExists(for: worktree.id),
+      let tabId = state.tabManager.selectedTabId,
+      let surface = state.splitTree(for: tabId).root?.leftmostLeaf()
+    else {
+      Issue.record("Expected blocking script tab and surface")
+      return
+    }
+
+    // Complete the script — unlocks the tab and clears the blockingScripts entry.
+    surface.bridge.onCommandFinished?(0)
+    _ = await nextEvent(stream) { event in
+      if case .blockingScriptCompleted = event { return true }
+      return false
+    }
+
+    state.tabManager.setCustomTitle(tabId, title: "user pick")
+
+    guard let snapshot = state.captureLayoutSnapshot() else {
+      Issue.record("Expected non-nil snapshot")
+      return
+    }
+    #expect(snapshot.tabs.first?.customTitle == "user pick")
+  }
+
+  @Test func restoreFromSnapshotIgnoresWhitespaceOnlyCustomTitle() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let state = manager.state(for: worktree)
+
+    let snapshot = TerminalLayoutSnapshot(
+      tabs: [
+        TerminalLayoutSnapshot.TabSnapshot(
+          id: nil,
+          title: "Terminal 1",
+          customTitle: "   ",
+          icon: nil,
+          tintColor: nil,
+          layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/tmp/repo/wt-1")),
+          focusedLeafIndex: 0
+        )
+      ],
+      selectedTabIndex: 0
+    )
+    state.pendingLayoutSnapshot = snapshot
+    state.ensureInitialTab(focusing: false)
+
+    let tab = state.tabManager.tabs.first
+    #expect(tab?.customTitle == nil)
+    #expect(tab?.displayTitle == "Terminal 1")
+  }
+
+  @Test func restoreFromSnapshotPreservesCustomTitle() {
+    let manager = WorktreeTerminalManager(runtime: GhosttyRuntime())
+    let worktree = makeWorktree()
+    let state = manager.state(for: worktree)
+
+    let snapshot = TerminalLayoutSnapshot(
+      tabs: [
+        TerminalLayoutSnapshot.TabSnapshot(
+          id: nil,
+          title: "Terminal 1",
+          customTitle: "foo",
+          icon: nil,
+          tintColor: nil,
+          layout: .leaf(TerminalLayoutSnapshot.SurfaceSnapshot(id: nil, workingDirectory: "/tmp/repo/wt-1")),
+          focusedLeafIndex: 0
+        )
+      ],
+      selectedTabIndex: 0
+    )
+    state.pendingLayoutSnapshot = snapshot
+    state.ensureInitialTab(focusing: false)
+
+    #expect(state.tabManager.tabs.first?.displayTitle == "foo")
+  }
+
   private func makeLayoutSnapshot() -> TerminalLayoutSnapshot {
     TerminalLayoutSnapshot(
       tabs: [
         TerminalLayoutSnapshot.TabSnapshot(
           id: nil,
           title: "Terminal 1",
+          customTitle: nil,
           icon: nil,
           tintColor: nil,
           layout: .leaf(

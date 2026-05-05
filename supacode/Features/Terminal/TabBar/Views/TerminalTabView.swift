@@ -10,11 +10,19 @@ struct TerminalTabView: View {
   let hasNotification: Bool
   let onSelect: () -> Void
   let onClose: () -> Void
+  let onRename: (String) -> Void
   @Binding var closeButtonGestureActive: Bool
+  let isEditing: Bool
+  let onBeginRename: () -> Void
+  let onEndRename: () -> Void
 
   @State private var isHovering = false
   @State private var isHoveringClose = false
   @State private var isPressing = false
+  @State private var editingTitle = ""
+  @State private var initialEditingTitle = ""
+  @State private var cancelOnExit = false
+  @FocusState private var isFieldFocused: Bool
   @Environment(CommandKeyObserver.self) private var commandKeyObserver
 
   var body: some View {
@@ -38,8 +46,10 @@ struct TerminalTabView: View {
       )
       .frame(width: fixedWidth)
       .contentShape(.rect)
-      .help("Open tab \(tab.title)")
-      .accessibilityLabel(tab.title)
+      .help("Open tab \(tab.displayTitle)")
+      .accessibilityLabel(tab.displayTitle)
+      .allowsHitTesting(!isEditing)
+      .opacity(isEditing ? 0 : 1)
 
       // The dot and close X share the same trailing slot: the dot is
       // visible when the tab is idle and has unread notifications, the
@@ -61,6 +71,33 @@ struct TerminalTabView: View {
       .animation(.easeInOut(duration: TerminalTabBarMetrics.hoverAnimationDuration), value: isHovering)
       .animation(.easeInOut(duration: 0.2), value: hasNotification)
       .padding(.trailing, TerminalTabBarMetrics.tabHorizontalPadding)
+      .opacity(isEditing ? 0 : 1)
+      .allowsHitTesting(!isEditing)
+    }
+    .overlay {
+      if isEditing {
+        TextField("", text: $editingTitle)
+          .textFieldStyle(.plain)
+          .font(.caption)
+          .focused($isFieldFocused)
+          .foregroundStyle(TerminalTabBarColors.activeText)
+          .accessibilityLabel("Rename tab")
+          .padding(.horizontal, TerminalTabBarMetrics.tabHorizontalPadding)
+          .padding(
+            .trailing,
+            TerminalTabBarMetrics.closeButtonSize + TerminalTabBarMetrics.contentSpacing
+          )
+          .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+          .onSubmit { onEndRename() }
+          .onExitCommand {
+            cancelOnExit = true
+            onEndRename()
+          }
+          .onChange(of: isFieldFocused) { _, focused in
+            guard !focused, isEditing else { return }
+            onEndRename()
+          }
+      }
     }
     .background {
       TerminalTabBackground(
@@ -78,6 +115,30 @@ struct TerminalTabView: View {
     .contentShape(.rect)
     .onHover { hovering in
       isHovering = hovering
+    }
+    .simultaneousGesture(
+      TapGesture(count: 2).onEnded {
+        guard !tab.isTitleLocked else { return }
+        onBeginRename()
+      }
+    )
+    .onChange(of: isEditing) { _, editing in
+      if editing {
+        editingTitle = tab.displayTitle
+        initialEditingTitle = tab.displayTitle
+        cancelOnExit = false
+        isFieldFocused = true
+      } else if cancelOnExit {
+        cancelOnExit = false
+      } else if editingTitle != initialEditingTitle {
+        onRename(editingTitle)
+      }
+    }
+    .onDisappear {
+      guard isEditing else { return }
+      defer { onEndRename() }
+      guard !cancelOnExit, editingTitle != initialEditingTitle else { return }
+      onRename(editingTitle)
     }
     .zIndex(isActive ? 2 : (isDragging ? 3 : 0))
     .overlay {

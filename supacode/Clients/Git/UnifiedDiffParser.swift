@@ -3,6 +3,14 @@ import Foundation
 /// Parses raw `git diff` output for a *single file* into a structured `FileDiff`.
 /// Pure and synchronous so it is unit-testable without shelling out.
 enum UnifiedDiffParser {
+  /// The `@@` hunk-header bounds, grouped to avoid a large (>2 member) tuple.
+  private struct HunkBounds {
+    let oldStart: Int
+    let oldCount: Int
+    let newStart: Int
+    let newCount: Int
+  }
+
   static func parse(_ raw: String, path: String) -> FileDiff {
     let lines = raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
@@ -11,20 +19,21 @@ enum UnifiedDiffParser {
     }
 
     var hunks: [DiffHunk] = []
-    var pending: (header: String, oldStart: Int, oldCount: Int, newStart: Int, newCount: Int)?
+    var pendingHeader: String?
+    var pendingBounds: HunkBounds?
     var pendingLines: [DiffLine] = []
     var oldNumber = 0
     var newNumber = 0
 
     func flush() {
-      guard let pending else { return }
+      guard let pendingHeader, let pendingBounds else { return }
       hunks.append(
         DiffHunk(
-          header: pending.header,
-          oldStart: pending.oldStart,
-          oldCount: pending.oldCount,
-          newStart: pending.newStart,
-          newCount: pending.newCount,
+          header: pendingHeader,
+          oldStart: pendingBounds.oldStart,
+          oldCount: pendingBounds.oldCount,
+          newStart: pendingBounds.newStart,
+          newCount: pendingBounds.newCount,
           lines: pendingLines
         )
       )
@@ -34,19 +43,21 @@ enum UnifiedDiffParser {
     for line in lines {
       if line.hasPrefix("@@") {
         flush()
-        if let header = parseHunkHeader(line) {
-          pending = (line, header.oldStart, header.oldCount, header.newStart, header.newCount)
-          oldNumber = header.oldStart
-          newNumber = header.newStart
+        if let bounds = parseHunkHeader(line) {
+          pendingHeader = line
+          pendingBounds = bounds
+          oldNumber = bounds.oldStart
+          newNumber = bounds.newStart
         } else {
-          pending = nil
+          pendingHeader = nil
+          pendingBounds = nil
         }
         continue
       }
 
       // Skip anything before the first hunk header (diff --git, index, ---, +++)
       // and the trailing empty string produced by a final newline.
-      guard pending != nil, !line.isEmpty else { continue }
+      guard pendingBounds != nil, !line.isEmpty else { continue }
 
       if line.hasPrefix("\\") {
         // "\ No newline at end of file" — drop the leading "\ ".
@@ -76,16 +87,15 @@ enum UnifiedDiffParser {
     return FileDiff(path: path, isBinary: false, hunks: hunks)
   }
 
-  private static func parseHunkHeader(
-    _ line: String
-  ) -> (oldStart: Int, oldCount: Int, newStart: Int, newCount: Int)? {
+  private static func parseHunkHeader(_ line: String) -> HunkBounds? {
     guard let match = line.firstMatch(of: /@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/) else {
       return nil
     }
-    let oldStart = Int(match.1) ?? 0
-    let oldCount = match.2.flatMap { Int($0) } ?? 1
-    let newStart = Int(match.3) ?? 0
-    let newCount = match.4.flatMap { Int($0) } ?? 1
-    return (oldStart, oldCount, newStart, newCount)
+    return HunkBounds(
+      oldStart: Int(match.1) ?? 0,
+      oldCount: match.2.flatMap { Int($0) } ?? 1,
+      newStart: Int(match.3) ?? 0,
+      newCount: match.4.flatMap { Int($0) } ?? 1
+    )
   }
 }

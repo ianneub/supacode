@@ -95,6 +95,9 @@ struct DiffView: View {
           }
           .listStyle(.plain)
           .scrollContentBackground(.hidden)
+          // Let rows shrink to the text height; the default min row height adds
+          // visible vertical gaps between diff lines.
+          .environment(\.defaultMinListRowHeight, 1)
           .frame(width: max(contentWidth, proxy.size.width), height: proxy.size.height)
         }
       }

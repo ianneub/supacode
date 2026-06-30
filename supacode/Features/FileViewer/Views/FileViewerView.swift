@@ -24,10 +24,13 @@ struct FileViewerView: View {
       Picker("Mode", selection: Binding(get: { store.mode }, set: { store.send(.modeChanged($0)) })) {
         Text("Diff").tag(FileViewerFeature.State.Mode.diff)
         Text("Source").tag(FileViewerFeature.State.Mode.source)
+        if let path = store.selectedPath, FileViewerFeature.isMarkdown(path) {
+          Text("Preview").tag(FileViewerFeature.State.Mode.preview)
+        }
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      .frame(maxWidth: 180)
+      .frame(maxWidth: 220)
       .disabled(store.selectedPath == nil)
       Spacer()
       Button {
@@ -75,12 +78,17 @@ struct FileViewerView: View {
     case .loading:
       ProgressView()
     case .loaded(let loaded):
-      if let diff = loaded.fileDiff {
-        DiffView(fileDiff: diff)
-      } else if let text = loaded.rawText {
-        SourceView(text: text)
-      } else {
-        ContentUnavailableView("Nothing to show", systemImage: "doc")
+      switch store.mode {
+      case .diff:
+        if let diff = loaded.fileDiff {
+          DiffView(fileDiff: diff)
+        } else {
+          ContentUnavailableView("Nothing to show", systemImage: "doc")
+        }
+      case .source:
+        SourceView(text: loaded.rawText ?? "")
+      case .preview:
+        MarkdownPreviewView(text: loaded.rawText ?? "")
       }
     case .failed(let message):
       ContentUnavailableView(

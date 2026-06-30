@@ -2,9 +2,42 @@ import AppKit
 import SwiftUI
 
 /// Inline unified-diff renderer: old/new line-number gutters + add/delete/context
-/// coloring from system semantic colors. Lazy so large diffs don't render at once.
+/// coloring from system semantic colors.
+///
+/// Rows render in a `List` (NSTableView-backed): genuinely lazy — only on-screen
+/// rows realize, so even a thousand-line diff opens instantly — and, unlike
+/// `LazyVStack`, it measures real row heights so there are no estimation gaps. The
+/// List sits in a horizontal `ScrollView` pinned to `max(contentWidth, paneWidth)`
+/// so long lines scroll sideways while short diffs still fill the pane width.
 struct DiffView: View {
   let fileDiff: FileDiff
+
+  /// One List row: a hunk header or a diff line. `id` is the flattened index, which
+  /// is stable for a given `fileDiff`.
+  private struct Row: Identifiable {
+    let id: Int
+    enum Kind {
+      case header(String)
+      case line(DiffLine)
+    }
+    let kind: Kind
+  }
+
+  /// Flattened hunk headers + lines, in display order.
+  private var rows: [Row] {
+    var out: [Row] = []
+    out.reserveCapacity(fileDiff.hunks.reduce(0) { $0 + 1 + $1.lines.count })
+    var id = 0
+    for hunk in fileDiff.hunks {
+      out.append(Row(id: id, kind: .header(hunk.header)))
+      id += 1
+      for line in hunk.lines {
+        out.append(Row(id: id, kind: .line(line)))
+        id += 1
+      }
+    }
+    return out
+  }
 
   /// A gutter only renders if that side actually has line numbers, so an added
   /// file doesn't reserve a permanently-empty "old" column (and vice versa).
@@ -27,11 +60,11 @@ struct DiffView: View {
   }
 
   /// Measured pixel width of the widest rendered row — gutters plus the longest
-  /// line of code. Used as the stack's minimum width so long lines extend into the
-  /// horizontal scroll; the pane width takes over when the diff is narrower than
-  /// the pane (so rows still fill the full width). Measured once per file (body
-  /// only re-runs when `fileDiff` changes), not on scroll. `utf8.count` (not
-  /// grapheme `count`) picks the longest line cheaply on big diffs.
+  /// line of code. The List is pinned to this (or the pane width, whichever is
+  /// larger) so long lines extend into the horizontal scroll while a narrow diff
+  /// still fills the pane. Measured once per file (body only re-runs when
+  /// `fileDiff` changes), not on scroll. `utf8.count` (not grapheme `count`) picks
+  /// the longest line cheaply on big diffs.
   private var contentWidth: CGFloat {
     let font = NSFont.monospacedSystemFont(
       ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
@@ -49,43 +82,37 @@ struct DiffView: View {
     } else if fileDiff.hunks.isEmpty {
       ContentUnavailableView("No changes", systemImage: "equal")
     } else {
-      // Nested single-axis scroll views, NOT one both-axes ScrollView around a
-      // LazyVStack. A LazyVStack can't resolve its cross-axis inside a both-axes
-      // scroll, so it mis-estimates geometry (diff shoved right, stray gaps between
-      // hunks); a plain VStack lays out correctly but renders every row eagerly,
-      // which stalls the main thread for ~1–2s on a thousand-line file. Here the
-      // inner vertical ScrollView keeps the LazyVStack on its supported single axis
-      // (only on-screen rows realize → instant), while the outer horizontal
-      // ScrollView carries long lines. The content is pinned to a definite size:
-      // `max(contentWidth, pane width)` fills the pane yet grows for long lines, and
-      // `minHeight: pane height` keeps a short diff flush at the top instead of
-      // letting the ScrollView center it.
       GeometryReader { proxy in
+        // List = NSTableView: lazy AND correct row heights (no LazyVStack gaps). The
+        // outer horizontal ScrollView carries long lines; the List width is pinned so
+        // short diffs fill the pane and long ones scroll sideways.
         ScrollView(.horizontal) {
-          ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-              ForEach(Array(fileDiff.hunks.enumerated()), id: \.offset) { _, hunk in
-                Text(hunk.header)
-                  .font(.body.monospaced())
-                  .foregroundStyle(.secondary)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-                  .padding(.vertical, 2)
-                  .padding(.leading, 4)
-                  .background(.quaternary)
-                ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                  DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
-                }
-              }
-            }
-            .frame(width: max(contentWidth, proxy.size.width), alignment: .leading)
-            .frame(minHeight: proxy.size.height, alignment: .topLeading)
+          List(rows) { row in
+            rowView(row)
+              .listRowInsets(EdgeInsets())
+              .listRowSeparator(.hidden)
+              .listRowBackground(Color.clear)
           }
-          // Bound the inner vertical scroll to the pane height so it actually
-          // scrolls (and stays lazy) instead of growing to its full content height.
-          .frame(height: proxy.size.height)
+          .listStyle(.plain)
+          .scrollContentBackground(.hidden)
+          .frame(width: max(contentWidth, proxy.size.width), height: proxy.size.height)
         }
       }
-      .textSelection(.enabled)
+    }
+  }
+
+  @ViewBuilder private func rowView(_ row: Row) -> some View {
+    switch row.kind {
+    case .header(let header):
+      Text(header)
+        .font(.body.monospaced())
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 2)
+        .padding(.leading, 4)
+        .background(.quaternary)
+    case .line(let line):
+      DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
     }
   }
 }
@@ -103,6 +130,7 @@ private struct DiffLineRow: View {
       Text(prefix + line.text)
         .font(.body.monospaced())
         .foregroundStyle(textColor)
+        .textSelection(.enabled)
         .fixedSize(horizontal: true, vertical: false)
         .padding(.leading, 8)
     }

@@ -28,6 +28,65 @@ struct RepositoriesFileViewerTests {
     }
   }
 
+  @Test func selectionChangedClosesFileViewer() async {
+    let worktreeA = makeWorktree(id: "/tmp/repo/main", name: "main")
+    let worktreeB = makeWorktree(id: "/tmp/repo/feature", name: "feature")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [worktreeA, worktreeB])
+    var initial = makeState(repositories: [repository])
+    initial.selection = .worktree(worktreeA.id)
+    initial.fileViewer = FileViewerFeature.State(worktreeURL: worktreeA.localWorkingDirectory!)
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(.selectionChanged([.worktree(worktreeB.id)], focusTerminal: false)) {
+      $0.fileViewer = nil
+    }
+  }
+
+  @Test func worktreeHistoryBackClosesFileViewer() async {
+    let worktreeA = makeWorktree(id: "/tmp/repo/main", name: "main")
+    let worktreeB = makeWorktree(id: "/tmp/repo/feature", name: "feature")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [worktreeA, worktreeB])
+    var initial = makeState(repositories: [repository])
+    initial.selection = .worktree(worktreeB.id)
+    initial.worktreeHistoryBackStack = [worktreeA.id]
+    initial.fileViewer = FileViewerFeature.State(worktreeURL: worktreeB.localWorkingDirectory!)
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(.worktreeHistoryBack) {
+      $0.fileViewer = nil
+    }
+  }
+
+  @Test func worktreeHistoryForwardClosesFileViewer() async {
+    let worktreeA = makeWorktree(id: "/tmp/repo/main", name: "main")
+    let worktreeB = makeWorktree(id: "/tmp/repo/feature", name: "feature")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [worktreeA, worktreeB])
+    var initial = makeState(repositories: [repository])
+    initial.selection = .worktree(worktreeA.id)
+    initial.worktreeHistoryForwardStack = [worktreeB.id]
+    initial.fileViewer = FileViewerFeature.State(worktreeURL: worktreeA.localWorkingDirectory!)
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(.worktreeHistoryForward) {
+      $0.fileViewer = nil
+    }
+  }
+
   @Test func delegateCloseDismissesViewer() async {
     let worktree = makeWorktree(id: "/tmp/repo/main", name: "main")
     let repository = makeRepository(id: "/tmp/repo", worktrees: [worktree])

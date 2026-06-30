@@ -3249,8 +3249,7 @@ struct RepositoriesFeature {
 
       case .toggleFileViewer:
         if state.fileViewer != nil {
-          state.fileViewer = nil
-          return .none
+          return state.closeFileViewer()
         }
         guard
           let worktree = state.worktree(for: state.selectedWorktreeID),
@@ -3263,8 +3262,7 @@ struct RepositoriesFeature {
         return .none
 
       case .fileViewer(.delegate(.close)):
-        state.fileViewer = nil
-        return .none
+        return state.closeFileViewer()
 
       case .fileViewer:
         return .none
@@ -3286,13 +3284,13 @@ struct RepositoriesFeature {
       case .selectWorktree(let worktreeID, let focusTerminal):
         let previousWorktreeID = state.selectedWorktreeID
         state.setSingleWorktreeSelection(worktreeID)
-        if state.fileViewer != nil, worktreeID != previousWorktreeID {
-          state.fileViewer = nil
-        }
         let selectedWorktree = state.worktree(for: worktreeID)
         var effects: [Effect<Action>] = [
           .send(.delegate(.selectedWorktreeChanged(selectedWorktree)))
         ]
+        if worktreeID != previousWorktreeID {
+          effects.append(state.closeFileViewer())
+        }
         if focusTerminal, let worktreeID, state.sidebarItems[id: worktreeID] != nil {
           effects.append(
             .send(.sidebarItems(.element(id: worktreeID, action: .focusTerminalRequested)))
@@ -5393,6 +5391,17 @@ enum WorktreeHistoryDirection {
 private let worktreeHistoryStackLimit = 50
 
 extension RepositoriesFeature.State {
+  /// Closes the file viewer pane and cancels any in-flight child effects.
+  /// Returns `.none` when the pane is already closed.
+  mutating func closeFileViewer() -> Effect<RepositoriesFeature.Action> {
+    guard fileViewer != nil else { return .none }
+    fileViewer = nil
+    return .merge(
+      .cancel(id: FileViewerFeature.CancelID.loadFiles),
+      .cancel(id: FileViewerFeature.CancelID.loadContent),
+    )
+  }
+
   mutating func restoreSelection(_ id: Worktree.ID?, pendingID: Worktree.ID) {
     guard selection == .worktree(pendingID) else { return }
     let target = isSelectionValid(id) ? id : nil
@@ -5458,7 +5467,8 @@ extension RepositoriesFeature.State {
       }
       setSingleWorktreeSelection(candidate, recordHistory: false)
       var effects: [Effect<RepositoriesFeature.Action>] = [
-        .send(.delegate(.selectedWorktreeChanged(worktree(for: candidate))))
+        closeFileViewer(),
+        .send(.delegate(.selectedWorktreeChanged(worktree(for: candidate)))),
       ]
       if sidebarItems[id: candidate] != nil {
         effects.append(
@@ -5479,7 +5489,10 @@ extension RepositoriesFeature.State {
     guard !selections.contains(.archivedWorktrees) else {
       selection = .archivedWorktrees
       sidebarSelectedWorktreeIDs = []
-      return .send(.delegate(.selectedWorktreeChanged(nil)))
+      return .merge(
+        closeFileViewer(),
+        .send(.delegate(.selectedWorktreeChanged(nil))),
+      )
     }
 
     // Failed-repo selection is exclusive: drop any worktree selection
@@ -5487,7 +5500,10 @@ extension RepositoriesFeature.State {
     if let failedID = selections.compactMap(\.failedRepositoryID).first {
       selection = .failedRepository(failedID)
       sidebarSelectedWorktreeIDs = []
-      return .send(.delegate(.selectedWorktreeChanged(nil)))
+      return .merge(
+        closeFileViewer(),
+        .send(.delegate(.selectedWorktreeChanged(nil))),
+      )
     }
 
     // Validate against the live roster + pending entries so a reselect of a
@@ -5505,7 +5521,10 @@ extension RepositoriesFeature.State {
 
     guard !nextSidebarSelectedWorktreeIDs.isEmpty else {
       setSingleWorktreeSelection(nil)
-      return .send(.delegate(.selectedWorktreeChanged(nil)))
+      return .merge(
+        closeFileViewer(),
+        .send(.delegate(.selectedWorktreeChanged(nil))),
+      )
     }
 
     let nextSelectedWorktreeID =
@@ -5520,6 +5539,9 @@ extension RepositoriesFeature.State {
     sidebarSelectedWorktreeIDs = nextSidebarSelectedWorktreeIDs
     recordWorktreeHistoryTransition(from: previousSelection, to: nextSelectedWorktreeID)
     var effects: [Effect<RepositoriesFeature.Action>] = []
+    if previousSelection != nextSelectedWorktreeID {
+      effects.append(closeFileViewer())
+    }
     if focusTerminal,
       let nextSelectedWorktreeID,
       previousSelection != nextSelectedWorktreeID,

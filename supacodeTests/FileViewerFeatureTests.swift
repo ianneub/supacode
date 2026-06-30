@@ -198,6 +198,89 @@ struct FileViewerFeatureTests {
     }
   }
 
+  // MARK: - Live refresh (filesystem polling)
+
+  @Test func refreshReloadsSelectedFileContent() async {
+    let files = [summary("a.swift")]
+    let oldDiff = FileDiff(path: "a.swift", isBinary: false, hunks: [])
+    let newDiff = FileDiff(
+      path: "a.swift",
+      isBinary: false,
+      hunks: [DiffHunk(header: "@@ -1,1 +1,1 @@", oldStart: 1, oldCount: 1, newStart: 1, newCount: 1, lines: [])]
+    )
+    let store = TestStore(
+      initialState: FileViewerFeature.State(
+        worktreeURL: worktreeURL,
+        files: .loaded(files),
+        selectedPath: "a.swift",
+        mode: .diff,
+        content: .loaded(.init(rawText: nil, fileDiff: oldDiff))
+      )
+    ) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.gitClient.changedFiles = { _, _ in files }
+      $0.gitClient.fileDiff = { _, _, _ in newDiff }
+    }
+    await store.send(.refresh)
+    // File list unchanged + selection still valid → no state change here…
+    await store.receive(\.filesRefreshed)
+    // …but the selected file's diff did change, so the content swaps in.
+    await store.receive(\.contentLoaded) {
+      $0.content = .loaded(.init(rawText: nil, fileDiff: newDiff))
+    }
+  }
+
+  @Test func refreshWithUnchangedDiffDoesNotMutateContent() async {
+    let files = [summary("a.swift")]
+    let diff = FileDiff(path: "a.swift", isBinary: false, hunks: [])
+    let store = TestStore(
+      initialState: FileViewerFeature.State(
+        worktreeURL: worktreeURL,
+        files: .loaded(files),
+        selectedPath: "a.swift",
+        mode: .diff,
+        content: .loaded(.init(rawText: nil, fileDiff: diff))
+      )
+    ) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.gitClient.changedFiles = { _, _ in files }
+      $0.gitClient.fileDiff = { _, _, _ in diff }
+    }
+    await store.send(.refresh)
+    await store.receive(\.filesRefreshed)
+    // Same diff as current → dedup guard skips the mutation (no state change asserted).
+    await store.receive(\.contentLoaded)
+  }
+
+  @Test func refreshReselectsWhenSelectedFileNoLongerChanged() async {
+    let newDiff = FileDiff(path: "b.swift", isBinary: false, hunks: [])
+    let bSummary = summary("b.swift")
+    let store = TestStore(
+      initialState: FileViewerFeature.State(
+        worktreeURL: worktreeURL,
+        files: .loaded([summary("a.swift")]),
+        selectedPath: "a.swift",
+        mode: .diff,
+        content: .loaded(.init(rawText: nil, fileDiff: FileDiff(path: "a.swift", isBinary: false, hunks: [])))
+      )
+    ) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.gitClient.changedFiles = { _, _ in [bSummary] }
+      $0.gitClient.fileDiff = { _, _, _ in newDiff }
+    }
+    await store.send(.refresh)
+    await store.receive(\.filesRefreshed) {
+      $0.files = .loaded([bSummary])
+      $0.selectedPath = "b.swift"  // a.swift no longer changed → fall back to first
+    }
+    await store.receive(\.contentLoaded) {
+      $0.content = .loaded(.init(rawText: nil, fileDiff: newDiff))
+    }
+  }
+
   @Test func isMarkdownDetectsExtensions() {
     #expect(FileViewerFeature.isMarkdown("docs/readme.md"))
     #expect(FileViewerFeature.isMarkdown("A.MARKDOWN"))

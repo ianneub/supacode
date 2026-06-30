@@ -5412,6 +5412,7 @@ extension RepositoriesFeature.State {
     return .merge(
       .cancel(id: FileViewerFeature.CancelID.loadFiles),
       .cancel(id: FileViewerFeature.CancelID.loadContent),
+      .cancel(id: FileViewerFeature.CancelID.watch),
     )
   }
 

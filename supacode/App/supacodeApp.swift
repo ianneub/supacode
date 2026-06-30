@@ -75,32 +75,9 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // left open from a previous session can't survive the relaunch.
     NSColorPanel.shared.isRestorable = false
     appStore?.send(.appLaunched)
-    // The menu is built slightly after launch; clear the built-in ⌘E once it exists.
-    DispatchQueue.main.async { [weak self] in self?.releaseUseSelectionForFindShortcut() }
-  }
-
-  /// macOS auto-adds a standard "Use Selection for Find" (⌘E) to Edit › Find. It
-  /// stays enabled and sorts before our View-menu "Toggle File Viewer", so it
-  /// swallows ⌘E. Strip its key equivalent (leaving the Find menu otherwise intact)
-  /// so ⌘E reaches our command. Re-applied on activation in case the menu rebuilds.
-  private func releaseUseSelectionForFindShortcut() {
-    let finderAction = NSSelectorFromString("performTextFinderAction:")
-    func walk(_ menu: NSMenu?) {
-      guard let menu else { return }
-      for item in menu.items {
-        if item.action == finderAction, item.keyEquivalent == "e",
-          item.keyEquivalentModifierMask == .command
-        {
-          item.keyEquivalent = ""
-        }
-        walk(item.submenu)
-      }
-    }
-    walk(NSApp.mainMenu)
   }
 
   func applicationDidBecomeActive(_ notification: Notification) {
-    releaseUseSelectionForFindShortcut()
     let app = NSApplication.shared
     // Filter `NSPanel` out of the visibility check — the system
     // color / font panels (and any sheet-attached child panels) are

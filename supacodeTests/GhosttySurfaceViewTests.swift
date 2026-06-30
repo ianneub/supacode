@@ -311,15 +311,6 @@ struct GhosttySurfaceViewTests {
 
     let noAction = NSMenuItem(title: "Inert", action: nil, keyEquivalent: "")
     #expect(!GhosttySurfaceView.isSystemManagedMenuItem(noAction))
-
-    // Built-in Edit › Find items (e.g. "Use Selection for Find" ⌘E) so a colliding
-    // app shortcut fires the app item directly instead of losing to the built-in.
-    let useSelectionForFind = NSMenuItem(
-      title: "Use Selection for Find",
-      action: NSSelectorFromString("performTextFinderAction:"),
-      keyEquivalent: "e"
-    )
-    #expect(GhosttySurfaceView.isSystemManagedMenuItem(useSelectionForFind))
   }
 
   @Test func reportedSurfaceSizeUsesScrollContentWidth() {

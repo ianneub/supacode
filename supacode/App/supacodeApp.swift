@@ -75,9 +75,45 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // left open from a previous session can't survive the relaunch.
     NSColorPanel.shared.isRestorable = false
     appStore?.send(.appLaunched)
+    // The menu (incl. AppKit's auto Find items) finishes building shortly after
+    // launch; clear the stray ⌘E once it exists, with a delayed retry in case the
+    // Find items are added a beat later.
+    DispatchQueue.main.async { [weak self] in self?.releaseDuplicateToggleFileViewerShortcut() }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+      self?.releaseDuplicateToggleFileViewerShortcut()
+    }
+    // Re-clear whenever a window becomes key, so a menu rebuild can't restore the chord.
+    NotificationCenter.default.addObserver(
+      forName: NSWindow.didBecomeKeyNotification,
+      object: nil,
+      queue: .main
+    ) { [weak self] _ in
+      MainActor.assumeIsolated { self?.releaseDuplicateToggleFileViewerShortcut() }
+    }
+  }
+
+  /// AppKit auto-adds an Edit › Find › "Use Selection for Find" (⌘E) that stays
+  /// enabled (the terminal answers find actions) and sorts before our View-menu
+  /// "Toggle File Viewer", so it swallows ⌘E. Strip ⌘E from every menu item that
+  /// isn't our command — identified by title, which is selector/localization proof —
+  /// so the chord reaches the toggle. Re-applied on activation in case the menu rebuilds.
+  private func releaseDuplicateToggleFileViewerShortcut() {
+    func walk(_ menu: NSMenu?) {
+      guard let menu else { return }
+      for item in menu.items {
+        if item.keyEquivalent == "e", item.keyEquivalentModifierMask == .command,
+          item.title != "Toggle File Viewer"
+        {
+          item.keyEquivalent = ""
+        }
+        walk(item.submenu)
+      }
+    }
+    walk(NSApp.mainMenu)
   }
 
   func applicationDidBecomeActive(_ notification: Notification) {
+    releaseDuplicateToggleFileViewerShortcut()
     let app = NSApplication.shared
     // Filter `NSPanel` out of the visibility check — the system
     // color / font panels (and any sheet-attached child panels) are

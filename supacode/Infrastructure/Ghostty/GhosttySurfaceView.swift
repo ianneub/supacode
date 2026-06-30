@@ -1314,11 +1314,6 @@ final class GhosttySurfaceView: NSView, Identifiable {
     #selector(NSWindow.performZoom(_:)),
     #selector(NSWindow.toggleFullScreen(_:)),
     #selector(NSApplication.arrangeInFront(_:)),
-    // AppKit auto-adds the Edit › Find items (Find ⌘F, Use Selection for Find ⌘E, …)
-    // and keeps them enabled, so an app shortcut sharing the chord (⌘E "Toggle File
-    // Viewer") would otherwise lose to the built-in. Treat them as system-managed so
-    // a colliding chord fires the app-owned item directly instead.
-    NSSelectorFromString("performTextFinderAction:"),
   ]
 
   /// True when `item` triggers one of `systemManagedMenuActions`.

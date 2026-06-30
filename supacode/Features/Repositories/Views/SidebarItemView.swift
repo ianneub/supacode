@@ -568,9 +568,9 @@ private struct DiffStatsContent: View, Equatable {
   var body: some View {
     let isEmphasized = backgroundProminence == .increased
     HStack(spacing: 2) {
-      Text("+\(addedLines)")
+      Text("+\(DiffLineCountFormat.abbreviated(addedLines))")
         .foregroundStyle(isEmphasized ? AnyShapeStyle(.secondary) : AnyShapeStyle(.green))
-      Text("-\(removedLines)")
+      Text("-\(DiffLineCountFormat.abbreviated(removedLines))")
         .foregroundStyle(isEmphasized ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
     }
     .font(.caption)

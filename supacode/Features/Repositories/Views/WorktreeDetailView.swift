@@ -61,9 +61,6 @@ struct WorktreeDetailView: View {
       && loadingInfo == nil
       && !showsMultiSelectionSummary
       && selectedWorktree?.isMissing != true
-    let openActionSelection = state.openActionSelection
-    let repoScripts = state.repoScripts
-    let globalScripts = state.globalScripts
     // Source `runningScriptIDs` from the slice instead of `state.runningScriptIDs`
     // so an unrelated `sidebarItems[id:].agents` mutation on the focused row
     // doesn't re-publish this. Same field, observed through the projected slice.
@@ -95,10 +92,12 @@ struct WorktreeDetailView: View {
           kind: toolbarKind(for: selectedWorktree, selectedRow: selectedRow),
           isRemote: selectedWorktree.host != nil,
           statusToast: repositories.statusToast,
-          openActionSelection: openActionSelection,
-          repoScripts: repoScripts,
-          globalScripts: globalScripts,
+          openActionSelection: state.openActionSelection,
+          repoScripts: state.repoScripts,
+          globalScripts: state.globalScripts,
           runningScriptIDs: runningScriptIDs,
+          addedLines: repositories.branchDiffStatsByWorktreeID[selectedWorktree.id]?.added,
+          removedLines: repositories.branchDiffStatsByWorktreeID[selectedWorktree.id]?.removed,
         )
         WorktreeToolbarContent(
           toolbarState: toolbarState,
@@ -446,6 +445,11 @@ struct WorktreeDetailView: View {
     let repoScripts: [ScriptDefinition]
     let globalScripts: [ScriptDefinition]
     let runningScriptIDs: Set<UUID>
+    /// Total added/removed lines for the worktree vs its default branch (refreshed
+    /// by `WorktreeInfoWatcherManager` on the worktree's existing cadence, not
+    /// polled here). `nil` when there are no changes or no local diff.
+    let addedLines: Int?
+    let removedLines: Int?
 
     var isFolder: Bool {
       if case .folder = kind { true } else { false }
@@ -564,13 +568,17 @@ struct WorktreeDetailView: View {
         .id(toolbarState.scriptMenuIdentity)
         .transaction { $0.animation = nil }
       }
-      ToolbarItem(placement: .primaryAction) {
+      ToolbarItemGroup(placement: .primaryAction) {
         Button(action: onToggleFileViewer) {
           Image(systemName: "sidebar.squares.right")
             .accessibilityLabel("Show changed files")
         }
         .help("Show changed files and diffs (side pane)")
         .disabled(isFileViewerToggleDisabled)
+        WorktreeDiffStatsToolbarView(
+          addedLines: toolbarState.addedLines,
+          removedLines: toolbarState.removedLines
+        )
       }
     }
 
@@ -1166,6 +1174,30 @@ private struct ScriptMenu: View {
 }
 
 @MainActor
+/// Total +/- line counts for the worktree vs its default branch, shown beside the
+/// file-viewer toggle (the same scope the file viewer diffs — committed branch work
+/// plus uncommitted changes). Abbreviated like the sidebar's +/- counts.
+private struct WorktreeDiffStatsToolbarView: View {
+  let addedLines: Int?
+  let removedLines: Int?
+
+  var body: some View {
+    let added = addedLines ?? 0
+    let removed = removedLines ?? 0
+    if added != 0 || removed != 0 {
+      HStack(spacing: 4) {
+        Text("+\(DiffLineCountFormat.abbreviated(added))")
+          .foregroundStyle(.green)
+        Text("-\(DiffLineCountFormat.abbreviated(removed))")
+          .foregroundStyle(.red)
+      }
+      .font(.callout)
+      .monospacedDigit()
+      .help("Lines changed vs the default branch (+\(added) / -\(removed))")
+    }
+  }
+}
+
 private struct WorktreeToolbarPreview: View {
   private let toolbarState: WorktreeDetailView.WorktreeToolbarState
 
@@ -1192,6 +1224,8 @@ private struct WorktreeToolbarPreview: View {
       repoScripts: [ScriptDefinition(kind: .run, command: "npm run dev")],
       globalScripts: [],
       runningScriptIDs: [],
+      addedLines: 1234,
+      removedLines: 56,
     )
   }
 
@@ -1240,7 +1274,6 @@ private struct FileViewerPaneDivider: View {
 
   private let grabWidth: CGFloat = 16
 
-  @State private var isHovering = false
   @State private var dragStartWidth: Double?
 
   var body: some View {
@@ -1255,15 +1288,11 @@ private struct FileViewerPaneDivider: View {
           .frame(width: 1)
       }
       .contentShape(.rect)
-      .onHover { hovering in
-        guard hovering != isHovering else { return }
-        isHovering = hovering
-        if hovering {
-          NSCursor.resizeLeftRight.push()
-        } else {
-          NSCursor.pop()
-        }
-      }
+      // System-managed hover cursor. Manual NSCursor.push/pop races with the
+      // adjacent ghostty surface's own cursor updates (it sets the cursor on
+      // mouse events), so the resize cursor only appeared coming from the pane
+      // side. `.pointerStyle` composes correctly with sibling views.
+      .pointerStyle(.frameResize(position: .trailing))
       .gesture(
         // Measure in GLOBAL space: the divider moves as the pane resizes during
         // the drag, so a `.local` translation would be relative to a shifting

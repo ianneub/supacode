@@ -914,6 +914,27 @@ struct GitClient {
     }
   }
 
+  /// Total added/removed lines for the worktree against its base ref (the
+  /// `.workingTreeVsBase` scope the file viewer uses): committed branch work plus
+  /// uncommitted changes vs the default branch, not just what's uncommitted.
+  nonisolated func branchLineChanges(at worktreeURL: URL) async -> (added: Int, removed: Int)? {
+    if await isWorktreeIndexLocked(worktreeURL) {
+      return nil
+    }
+    let path = worktreeURL.path(percentEncoded: false)
+    let base = await diffBaseArguments(for: .workingTreeVsBase, worktreeURL: worktreeURL)
+    do {
+      let diff = try await runGit(
+        operation: .lineChanges,
+        arguments: ["-C", path, "diff", "--shortstat"] + base
+      )
+      let changes = parseShortstat(diff)
+      return (added: changes.added, removed: changes.removed)
+    } catch {
+      return nil
+    }
+  }
+
   nonisolated func changedFiles(at worktreeURL: URL, scope: DiffScope) async throws -> [DiffFileSummary] {
     let path = worktreeURL.path(percentEncoded: false)
     let base = await diffBaseArguments(for: scope, worktreeURL: worktreeURL)

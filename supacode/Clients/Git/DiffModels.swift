@@ -12,6 +12,11 @@ nonisolated struct DiffFileSummary: Equatable, Sendable, Identifiable {
   let isBinary: Bool
 }
 
+nonisolated struct DiffLineCounts: Equatable, Sendable {
+  let added: Int
+  let removed: Int
+}
+
 nonisolated enum DiffScope: Equatable, Sendable {
   case workingTreeVsHead  // uncommitted changes vs HEAD
   case workingTreeVsBase  // everything the worktree changed vs its base ref (DEFAULT)

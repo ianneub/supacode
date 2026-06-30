@@ -186,6 +186,10 @@ struct RepositoriesFeature {
     /// The file-viewer side pane for the selected worktree. `nil` = pane closed.
     var fileViewer: FileViewerFeature.State?
 
+    /// Total +/- vs the base branch per worktree, for the toolbar indicator.
+    /// Computed only for the selected worktree (so other entries may be stale/absent).
+    var branchDiffStatsByWorktreeID: [Worktree.ID: DiffLineCounts] = [:]
+
     // MARK: - Sidebar items (per-row TCA collection).
     var sidebarItems: IdentifiedArrayOf<SidebarItemFeature.State> = []
     var sidebarGrouping: SidebarGrouping = .empty
@@ -404,6 +408,9 @@ struct RepositoriesFeature {
     case worktreeNotificationReceived(Worktree.ID)
     case worktreeBranchNameLoaded(worktreeID: Worktree.ID, name: String)
     case worktreeLineChangesLoaded(worktreeID: Worktree.ID, added: Int, removed: Int)
+    /// Total +/- vs the base branch for the worktree (toolbar indicator), computed
+    /// only for the selected worktree.
+    case worktreeBranchLineChangesLoaded(worktreeID: Worktree.ID, added: Int, removed: Int)
     case refreshGithubIntegrationAvailability
     case githubIntegrationAvailabilityUpdated(Bool)
     case repositoryPullRequestRefreshCompleted(Repository.ID)
@@ -2130,6 +2137,12 @@ struct RepositoriesFeature {
           removed: removed,
         )
 
+      case .worktreeBranchLineChangesLoaded(let worktreeID, let added, let removed):
+        let counts = added == 0 && removed == 0 ? nil : DiffLineCounts(added: added, removed: removed)
+        guard state.branchDiffStatsByWorktreeID[worktreeID] != counts else { return .none }
+        state.branchDiffStatsByWorktreeID[worktreeID] = counts
+        return .none
+
       case .repositoryPullRequestsLoaded(let repositoryID, let pullRequestsByWorktreeID):
         guard let repository = state.repositories[id: repositoryID] else {
           return .none
@@ -2795,7 +2808,7 @@ struct RepositoriesFeature {
           }
           let worktreeURL = worktree.workingDirectory
           let gitClient = gitClient(for: worktree)
-          return .run { send in
+          let lineChangesEffect = Effect<Action>.run { send in
             if let changes = await gitClient.lineChanges(worktreeURL) {
               await send(
                 .worktreeLineChangesLoaded(
@@ -2806,6 +2819,23 @@ struct RepositoriesFeature {
               )
             }
           }
+          // The toolbar's total-vs-base indicator only shows the selected worktree,
+          // so compute that (extra) diff for the selected one only.
+          guard worktreeID == state.selectedWorktreeID else { return lineChangesEffect }
+          return .merge(
+            lineChangesEffect,
+            .run { send in
+              if let changes = await gitClient.branchLineChanges(worktreeURL) {
+                await send(
+                  .worktreeBranchLineChangesLoaded(
+                    worktreeID: worktreeID,
+                    added: changes.added,
+                    removed: changes.removed
+                  )
+                )
+              }
+            }
+          )
         case .repositoryPullRequestRefresh(let repositoryRootURL, let worktreeIDs):
           let worktrees = worktreeIDs.compactMap { state.worktree(for: $0) }
           guard let firstWorktree = worktrees.first,
@@ -3812,6 +3842,7 @@ struct RepositoriesFeature {
 
       case .refreshGithubIntegrationAvailability, .githubIntegrationAvailabilityUpdated,
         .repositoryPullRequestRefreshCompleted, .worktreeBranchNameLoaded, .worktreeLineChangesLoaded,
+        .worktreeBranchLineChangesLoaded,
         .repositoryPullRequestsLoaded, .pullRequestAction, .setGithubIntegrationEnabled, .setMergedWorktreeAction,
         .setAutoDeleteArchivedWorktreesAfterDays, .autoDeleteExpiredArchivedWorktrees, .setMoveNotifiedWorktreeToTop:
         // Real handling lives in `githubIntegrationReducer` (combined below) to keep `body`

@@ -199,4 +199,27 @@ struct RepositoriesFileViewerTests {
     state.repositoryRoots = repositories.map(\.rootURL)
     return state
   }
+
+  // MARK: - Branch diff stats (toolbar indicator)
+
+  @Test func branchLineChangesLoadedStoresAndClearsStats() async {
+    let worktree = makeWorktree(id: "/tmp/repo/main", name: "main")
+    let repository = makeRepository(id: "/tmp/repo", worktrees: [worktree])
+    var initial = makeState(repositories: [repository])
+    initial.selection = .worktree(worktree.id)
+    let store = TestStore(initialState: initial) {
+      RepositoriesFeature()
+    } withDependencies: {
+      $0.sidebarStructureAutoRecompute = false
+    }
+    store.exhaustivity = .off(showSkippedAssertions: false)
+
+    await store.send(.worktreeBranchLineChangesLoaded(worktreeID: worktree.id, added: 1200, removed: 30)) {
+      $0.branchDiffStatsByWorktreeID[worktree.id] = DiffLineCounts(added: 1200, removed: 30)
+    }
+    // No changes → cleared to nil so the toolbar hides the indicator.
+    await store.send(.worktreeBranchLineChangesLoaded(worktreeID: worktree.id, added: 0, removed: 0)) {
+      $0.branchDiffStatsByWorktreeID[worktree.id] = nil
+    }
+  }
 }

@@ -55,6 +55,8 @@ struct GitClientDependency: Sendable {
   var isBareRepository: @Sendable (_ repoRoot: URL) async throws -> Bool
   var branchName: @Sendable (URL) async -> String?
   var lineChanges: @Sendable (URL) async -> (added: Int, removed: Int)?
+  /// Total +/- vs the worktree's base ref (default branch), for the toolbar indicator.
+  var branchLineChanges: @Sendable (URL) async -> (added: Int, removed: Int)?
   var changedFiles: @Sendable (URL, DiffScope) async throws -> [DiffFileSummary]
   var fileDiff: @Sendable (URL, String, DiffScope) async throws -> FileDiff
   var remoteNames: @Sendable (_ repoRoot: URL) async throws -> [String]
@@ -136,6 +138,7 @@ extension GitClientDependency: DependencyKey {
       },
       branchName: { await GitClient(shell: shell).symbolicHeadBranch(at: $0) },
       lineChanges: { await GitClient(shell: shell).lineChanges(at: $0) },
+      branchLineChanges: { await GitClient(shell: shell).branchLineChanges(at: $0) },
       changedFiles: { try await GitClient(shell: shell).changedFiles(at: $0, scope: $1) },
       fileDiff: { try await GitClient(shell: shell).fileDiff(at: $0, path: $1, scope: $2) },
       remoteNames: { try await GitClient(shell: shell).remoteNames(for: $0) },

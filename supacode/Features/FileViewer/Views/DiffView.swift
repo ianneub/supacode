@@ -30,12 +30,13 @@ struct DiffView: View {
   /// line of code. Used as the stack's minimum width so long lines extend into the
   /// horizontal scroll; the pane width takes over when the diff is narrower than
   /// the pane (so rows still fill the full width). Measured once per file (body
-  /// only re-runs when `fileDiff` changes), not on scroll.
+  /// only re-runs when `fileDiff` changes), not on scroll. `utf8.count` (not
+  /// grapheme `count`) picks the longest line cheaply on big diffs.
   private var contentWidth: CGFloat {
     let font = NSFont.monospacedSystemFont(
       ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
     let digitW = ("0" as NSString).size(withAttributes: [.font: font]).width
-    let longest = fileDiff.hunks.lazy.flatMap(\.lines).max { $0.text.count < $1.text.count }?.text ?? ""
+    let longest = fileDiff.hunks.lazy.flatMap(\.lines).max { $0.text.utf8.count < $1.text.utf8.count }?.text ?? ""
     let textW = ("+ " + longest as NSString).size(withAttributes: [.font: font]).width
     let gutters = CGFloat((showsOld ? 1 : 0) + (showsNew ? 1 : 0))
     // 4 (row leading) + per-gutter (digits + 6 pad) + 8 (text leading) + text + slack
@@ -48,31 +49,40 @@ struct DiffView: View {
     } else if fileDiff.hunks.isEmpty {
       ContentUnavailableView("No changes", systemImage: "equal")
     } else {
-      // A plain VStack (not LazyVStack): inside a both-axes ScrollView a LazyVStack
-      // can't resolve its cross-axis, so it mis-estimates row geometry — the diff
-      // gets shoved into the right half of the pane with stray vertical gaps
-      // between hunks. The GeometryReader lets us pin the content to a definite
-      // size: `max(contentWidth, pane width)` fills the pane yet still grows for
-      // long lines (horizontal scroll), and `minHeight: pane height` keeps a short
-      // diff flush at the top instead of letting the ScrollView center it.
+      // Nested single-axis scroll views, NOT one both-axes ScrollView around a
+      // LazyVStack. A LazyVStack can't resolve its cross-axis inside a both-axes
+      // scroll, so it mis-estimates geometry (diff shoved right, stray gaps between
+      // hunks); a plain VStack lays out correctly but renders every row eagerly,
+      // which stalls the main thread for ~1–2s on a thousand-line file. Here the
+      // inner vertical ScrollView keeps the LazyVStack on its supported single axis
+      // (only on-screen rows realize → instant), while the outer horizontal
+      // ScrollView carries long lines. The content is pinned to a definite size:
+      // `max(contentWidth, pane width)` fills the pane yet grows for long lines, and
+      // `minHeight: pane height` keeps a short diff flush at the top instead of
+      // letting the ScrollView center it.
       GeometryReader { proxy in
-        ScrollView([.vertical, .horizontal]) {
-          VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(fileDiff.hunks.enumerated()), id: \.offset) { _, hunk in
-              Text(hunk.header)
-                .font(.body.monospaced())
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 2)
-                .padding(.leading, 4)
-                .background(.quaternary)
-              ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-                DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
+        ScrollView(.horizontal) {
+          ScrollView(.vertical) {
+            LazyVStack(alignment: .leading, spacing: 0) {
+              ForEach(Array(fileDiff.hunks.enumerated()), id: \.offset) { _, hunk in
+                Text(hunk.header)
+                  .font(.body.monospaced())
+                  .foregroundStyle(.secondary)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+                  .padding(.vertical, 2)
+                  .padding(.leading, 4)
+                  .background(.quaternary)
+                ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
+                  DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
+                }
               }
             }
+            .frame(width: max(contentWidth, proxy.size.width), alignment: .leading)
+            .frame(minHeight: proxy.size.height, alignment: .topLeading)
           }
-          .frame(width: max(contentWidth, proxy.size.width), alignment: .leading)
-          .frame(minHeight: proxy.size.height, alignment: .topLeading)
+          // Bound the inner vertical scroll to the pane height so it actually
+          // scrolls (and stays lazy) instead of growing to its full content height.
+          .frame(height: proxy.size.height)
         }
       }
       .textSelection(.enabled)

@@ -47,7 +47,9 @@ struct FileViewerView: View {
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      .frame(maxWidth: 220)
+      // Leading-align so the control doesn't recenter (and shift) when the
+      // Preview segment appears/disappears for markdown files.
+      .frame(maxWidth: 220, alignment: .leading)
       .disabled(store.selectedPath == nil)
       Spacer()
       Button {

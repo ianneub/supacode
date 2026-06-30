@@ -74,6 +74,10 @@ private struct DiffLineRow: View {
   /// A hidden run of digits reserves exactly the right column width at any Dynamic
   /// Type size (monospaced → every digit is the same advance), with the real number
   /// right-aligned over it. No magic per-digit constants, and numbers never wrap.
+  ///
+  /// `fixedSize()` makes the gutter rigid: without it, the adjacent `fixedSize`
+  /// code text on a long line claims all the row width and starves this
+  /// intrinsic-sized column to zero, dropping the line number on long rows.
   private func gutter(_ number: Int?) -> some View {
     Text(String(repeating: "0", count: digitCount))
       .font(.body.monospaced())
@@ -84,6 +88,7 @@ private struct DiffLineRow: View {
           .foregroundStyle(.secondary)
           .lineLimit(1)
       }
+      .fixedSize()
       .padding(.leading, 6)
   }
 

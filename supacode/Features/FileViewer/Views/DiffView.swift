@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Inline unified-diff renderer: old/new line-number gutters + add/delete/context
@@ -25,6 +26,23 @@ struct DiffView: View {
     return max(2, String(maxNumber).count)
   }
 
+  /// A `LazyVStack` has no fixed cross-axis size inside a both-axes `ScrollView`,
+  /// so the layout engine can't place it and shoves the whole diff into the right
+  /// half of the pane with stray vertical gaps. Pinning the stack to the measured
+  /// width of its widest rendered row gives it a definite width — the diff lays
+  /// out flush top-left — while keeping the rows lazy. Measured once per file
+  /// (body only re-runs when `fileDiff` changes), not on scroll.
+  private var contentWidth: CGFloat {
+    let font = NSFont.monospacedSystemFont(
+      ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
+    let digitW = ("0" as NSString).size(withAttributes: [.font: font]).width
+    let longest = fileDiff.hunks.lazy.flatMap(\.lines).max { $0.text.count < $1.text.count }?.text ?? ""
+    let textW = ("+ " + longest as NSString).size(withAttributes: [.font: font]).width
+    let gutters = CGFloat((showsOld ? 1 : 0) + (showsNew ? 1 : 0))
+    // 4 (row leading) + per-gutter (digits + 6 pad) + 8 (text leading) + text + slack
+    return 4 + gutters * (digitW * CGFloat(digitCount) + 6) + 8 + textW + 16
+  }
+
   var body: some View {
     if fileDiff.isBinary {
       ContentUnavailableView("Binary file", systemImage: "doc.badge.gearshape")
@@ -45,6 +63,7 @@ struct DiffView: View {
             }
           }
         }
+        .frame(width: contentWidth, alignment: .leading)
       }
       .textSelection(.enabled)
     }

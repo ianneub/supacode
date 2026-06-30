@@ -28,6 +28,9 @@ struct DiffFileListView: View {
             Text("-\(file.removed)").font(.caption.monospaced()).foregroundStyle(.red)
           }
         }
+        // Make the whole row hit-test, not just the icon/text — the Spacer and
+        // trailing gap are transparent and otherwise swallow clicks.
+        .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .help(Self.displayName(file))

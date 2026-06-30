@@ -568,17 +568,21 @@ struct WorktreeDetailView: View {
         .id(toolbarState.scriptMenuIdentity)
         .transaction { $0.animation = nil }
       }
-      ToolbarItemGroup(placement: .primaryAction) {
+      ToolbarItem(placement: .primaryAction) {
+        // Icon + diff stats in one button so a click anywhere on the pill toggles
+        // the pane.
         Button(action: onToggleFileViewer) {
-          Image(systemName: "sidebar.squares.right")
-            .accessibilityLabel("Show changed files")
+          HStack(spacing: 6) {
+            Image(systemName: "sidebar.squares.right")
+            WorktreeDiffStatsToolbarView(
+              addedLines: toolbarState.addedLines,
+              removedLines: toolbarState.removedLines
+            )
+          }
+          .accessibilityLabel("Show changed files")
         }
         .help("Show changed files and diffs (side pane)")
         .disabled(isFileViewerToggleDisabled)
-        WorktreeDiffStatsToolbarView(
-          addedLines: toolbarState.addedLines,
-          removedLines: toolbarState.removedLines
-        )
       }
     }
 
@@ -1193,6 +1197,8 @@ private struct WorktreeDiffStatsToolbarView: View {
       }
       .font(.callout)
       .monospacedDigit()
+      // Keep the trailing "-N" off the pill's edge.
+      .padding(.trailing, 4)
       .help("Lines changed vs the default branch (+\(added) / -\(removed))")
     }
   }

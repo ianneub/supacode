@@ -1,0 +1,32 @@
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 13f78eea6..e39e6cfbd 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -8543,10 +8543,23 @@ pub const RepeatableLink = struct {
+     links: std.ArrayListUnmanaged(inputpkg.Link) = .{},
+ 
+     pub fn parseCLI(self: *Self, alloc: Allocator, input_: ?[]const u8) !void {
+-        _ = self;
+-        _ = alloc;
+-        _ = input_;
+-        return error.NotImplemented;
++        const value = input_ orelse return error.ValueRequired;
++        // Empty value resets the user-configured links. The built-in URL
++        // matcher at index 0 is re-added by Config.default, not here.
++        if (value.len == 0) {
++            self.links.clearRetainingCapacity();
++            return;
++        }
++        // supacode minimal form: the entire value is the regex. The action is
++        // always the system opener and the link is clickable on cmd/ctrl-hover,
++        // mirroring the built-in URL link. supacode intercepts the resulting
++        // open-URL action app-side to route in-worktree paths to its viewer.
++        const regex = try alloc.dupe(u8, value);
++        try self.links.append(alloc, .{
++            .regex = regex,
++            .action = .{ .open = {} },
++            .highlight = .{ .hover_mods = inputpkg.ctrlOrSuper(.{}) },
++        });
+     }
+ 
+     /// Deep copy of the struct. Required by Config.

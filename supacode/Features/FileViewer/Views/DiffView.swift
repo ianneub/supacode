@@ -5,6 +5,26 @@ import SwiftUI
 struct DiffView: View {
   let fileDiff: FileDiff
 
+  /// A gutter only renders if that side actually has line numbers, so an added
+  /// file doesn't reserve a permanently-empty "old" column (and vice versa).
+  private var showsOld: Bool {
+    fileDiff.hunks.contains { $0.lines.contains { $0.oldNumber != nil } }
+  }
+  private var showsNew: Bool {
+    fileDiff.hunks.contains { $0.lines.contains { $0.newNumber != nil } }
+  }
+
+  /// Digits in the largest line number — the gutter sizes itself to exactly this
+  /// many monospaced digits so numbers hug the text instead of sitting behind a
+  /// fixed, oversized column.
+  private var digitCount: Int {
+    let maxNumber = fileDiff.hunks
+      .lazy
+      .flatMap(\.lines)
+      .reduce(0) { max($0, max($1.oldNumber ?? 0, $1.newNumber ?? 0)) }
+    return max(2, String(maxNumber).count)
+  }
+
   var body: some View {
     if fileDiff.isBinary {
       ContentUnavailableView("Binary file", systemImage: "doc.badge.gearshape")
@@ -21,11 +41,10 @@ struct DiffView: View {
               .padding(.vertical, 2)
               .background(.quaternary)
             ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-              DiffLineRow(line: line)
+              DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
             }
           }
         }
-        .padding(.vertical, 4)
       }
       .textSelection(.enabled)
     }
@@ -34,27 +53,38 @@ struct DiffView: View {
 
 private struct DiffLineRow: View {
   let line: DiffLine
+  let showsOld: Bool
+  let showsNew: Bool
+  let digitCount: Int
 
   var body: some View {
     HStack(alignment: .top, spacing: 0) {
-      gutter(line.oldNumber)
-      gutter(line.newNumber)
+      if showsOld { gutter(line.oldNumber) }
+      if showsNew { gutter(line.newNumber) }
       Text(prefix + line.text)
         .font(.body.monospaced())
         .foregroundStyle(textColor)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .fixedSize(horizontal: true, vertical: false)
+        .padding(.leading, 8)
     }
-    .padding(.horizontal, 4)
+    .padding(.leading, 4)
     .background(rowBackground)
   }
 
+  /// A hidden run of digits reserves exactly the right column width at any Dynamic
+  /// Type size (monospaced → every digit is the same advance), with the real number
+  /// right-aligned over it. No magic per-digit constants, and numbers never wrap.
   private func gutter(_ number: Int?) -> some View {
-    Text(number.map(String.init) ?? "")
+    Text(String(repeating: "0", count: digitCount))
       .font(.body.monospaced())
-      .foregroundStyle(.secondary)
-      .frame(width: 44, alignment: .trailing)
-      .padding(.trailing, 6)
+      .hidden()
+      .overlay(alignment: .trailing) {
+        Text(number.map(String.init) ?? "")
+          .font(.body.monospaced())
+          .foregroundStyle(.secondary)
+          .lineLimit(1)
+      }
+      .padding(.leading, 6)
   }
 
   private var prefix: String {

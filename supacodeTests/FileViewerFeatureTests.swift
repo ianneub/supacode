@@ -200,9 +200,12 @@ struct FileViewerFeatureTests {
 
   // MARK: - Live refresh (filesystem polling)
 
-  @Test func refreshReloadsSelectedFileContent() async {
-    let files = [summary("a.swift")]
-    let oldDiff = FileDiff(path: "a.swift", isBinary: false, hunks: [])
+  @Test func refreshReloadsContentWhenSelectedFileSummaryChanges() async {
+    let oldFiles = [summary("a.swift")]
+    // Same path, but the +/- summary changed → the file's diff is reloaded.
+    let newFiles = [
+      DiffFileSummary(status: .modified, oldPath: nil, newPath: "a.swift", added: 9, removed: 2, isBinary: false)
+    ]
     let newDiff = FileDiff(
       path: "a.swift",
       isBinary: false,
@@ -211,47 +214,49 @@ struct FileViewerFeatureTests {
     let store = TestStore(
       initialState: FileViewerFeature.State(
         worktreeURL: worktreeURL,
-        files: .loaded(files),
+        files: .loaded(oldFiles),
         selectedPath: "a.swift",
         mode: .diff,
-        content: .loaded(.init(rawText: nil, fileDiff: oldDiff))
+        content: .loaded(.init(rawText: nil, fileDiff: FileDiff(path: "a.swift", isBinary: false, hunks: [])))
       )
     ) {
       FileViewerFeature()
     } withDependencies: {
-      $0.gitClient.changedFiles = { _, _ in files }
+      $0.gitClient.changedFiles = { _, _ in newFiles }
       $0.gitClient.fileDiff = { _, _, _ in newDiff }
     }
     await store.send(.refresh)
-    // File list unchanged + selection still valid → no state change here…
-    await store.receive(\.filesRefreshed)
-    // …but the selected file's diff did change, so the content swaps in.
+    await store.receive(\.filesRefreshed) {
+      $0.files = .loaded(newFiles)
+    }
     await store.receive(\.contentLoaded) {
       $0.content = .loaded(.init(rawText: nil, fileDiff: newDiff))
     }
   }
 
-  @Test func refreshWithUnchangedDiffDoesNotMutateContent() async {
+  @Test func refreshWithUnchangedSummarySkipsReDiff() async {
     let files = [summary("a.swift")]
-    let diff = FileDiff(path: "a.swift", isBinary: false, hunks: [])
     let store = TestStore(
       initialState: FileViewerFeature.State(
         worktreeURL: worktreeURL,
         files: .loaded(files),
         selectedPath: "a.swift",
         mode: .diff,
-        content: .loaded(.init(rawText: nil, fileDiff: diff))
+        content: .loaded(.init(rawText: nil, fileDiff: FileDiff(path: "a.swift", isBinary: false, hunks: [])))
       )
     ) {
       FileViewerFeature()
     } withDependencies: {
       $0.gitClient.changedFiles = { _, _ in files }
-      $0.gitClient.fileDiff = { _, _, _ in diff }
+      // The selected file's summary is unchanged → its diff must NOT be recomputed.
+      $0.gitClient.fileDiff = { _, _, _ in
+        Issue.record("fileDiff should not run when the selected file's summary is unchanged")
+        return FileDiff(path: "a.swift", isBinary: false, hunks: [])
+      }
     }
     await store.send(.refresh)
+    // Same list + same selected-file summary → no content reload (no `.contentLoaded`).
     await store.receive(\.filesRefreshed)
-    // Same diff as current → dedup guard skips the mutation (no state change asserted).
-    await store.receive(\.contentLoaded)
   }
 
   @Test func refreshReselectsWhenSelectedFileNoLongerChanged() async {

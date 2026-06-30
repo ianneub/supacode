@@ -116,6 +116,11 @@ struct FileViewerFeature {
         .cancellable(id: CancelID.loadFiles, cancelInFlight: true)
 
       case .filesRefreshed(let files):
+        // Summary of the currently-selected file *before* the list updates, so we
+        // can tell whether its diff actually changed this tick.
+        let previousSelectedSummary = state.selectedPath.flatMap { sel in
+          state.files.value?.first { $0.id == sel }
+        }
         if state.files != .loaded(files) {
           state.files = .loaded(files)
         }
@@ -134,7 +139,15 @@ struct FileViewerFeature {
             return .none
           }
         }
-        guard state.selectedPath != nil else { return .none }
+        guard let selectedPath = state.selectedPath else { return .none }
+        // If the selection didn't change and the selected file's summary is identical
+        // (same status / +/- counts), its diff hasn't changed — skip the re-diff. This
+        // avoids re-running `git diff` on a large viewed-but-unedited file every poll
+        // tick, which otherwise competes with switching to another file.
+        let selectedSummary = files.first { $0.id == selectedPath }
+        if selectionStillChanged, selectedSummary == previousSelectedSummary {
+          return .none
+        }
         // Reload the selected file's content without a loading flash; `contentLoaded`
         // dedupes so an unchanged diff doesn't churn the view.
         return Self.contentEffect(state: state, gitClient: gitClient, fileContent: fileContent)

@@ -6,4 +6,8 @@ nonisolated enum FileViewerLoadState<Value: Equatable & Sendable>: Equatable, Se
   case loading
   case loaded(Value)
   case failed(String)
+
+  var value: Value? {
+    if case .loaded(let value) = self { value } else { nil }
+  }
 }

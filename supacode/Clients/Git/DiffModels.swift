@@ -1,5 +1,3 @@
-import Foundation
-
 nonisolated enum DiffFileStatus: Equatable, Sendable {
   case added, modified, deleted, renamed, copied, untracked
 }
@@ -21,7 +19,7 @@ nonisolated enum DiffScope: Equatable, Sendable {
 }
 
 nonisolated struct DiffLine: Equatable, Sendable {
-  nonisolated enum Kind: Equatable, Sendable { case context, addition, deletion, noNewlineMarker }
+  enum Kind: Equatable, Sendable { case context, addition, deletion, noNewlineMarker }
   let kind: Kind
   let oldNumber: Int?
   let newNumber: Int?

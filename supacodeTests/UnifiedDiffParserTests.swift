@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 
 @testable import supacode
@@ -117,5 +116,13 @@ struct UnifiedDiffParserTests {
     #expect(diff.hunks[0].lines.count == 2)
     #expect(diff.hunks[0].lines[1].kind == .context)
     #expect(diff.hunks[0].lines[1].text == "")
+  }
+
+  @Test func stripsCarriageReturnFromCRLFContent() {
+    let raw = "@@ -1,1 +1,1 @@\r\n-old\r\n+new\r\n"
+    let hunk = UnifiedDiffParser.parse(raw, path: "a").hunks[0]
+    #expect(hunk.lines.map(\.kind) == [.deletion, .addition])
+    #expect(hunk.lines[0].text == "old")
+    #expect(hunk.lines[1].text == "new")
   }
 }

@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 
 @testable import supacode
@@ -87,5 +86,15 @@ struct ChangedFilesParserTests {
   @Test func handlesEmptyInputs() {
     let result = ChangedFilesParser.parse(nameStatus: "", numstat: "", untracked: [])
     #expect(result.isEmpty)
+  }
+
+  @Test func parsesCopiedStatus() {
+    let nameStatus = "C100\tsrc/orig.swift\tsrc/copy.swift\n"
+    let numstat = "0\t0\tsrc/copy.swift\n"
+    let result = ChangedFilesParser.parse(nameStatus: nameStatus, numstat: numstat, untracked: [])
+    #expect(result.count == 1)
+    #expect(result[0].status == .copied)
+    #expect(result[0].oldPath == "src/orig.swift")
+    #expect(result[0].newPath == "src/copy.swift")
   }
 }

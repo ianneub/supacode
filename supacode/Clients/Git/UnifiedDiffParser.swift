@@ -1,5 +1,3 @@
-import Foundation
-
 /// Parses raw `git diff` output for a *single file* into a structured `FileDiff`.
 /// Pure and synchronous so it is unit-testable without shelling out.
 nonisolated enum UnifiedDiffParser {
@@ -12,7 +10,9 @@ nonisolated enum UnifiedDiffParser {
   }
 
   static func parse(_ raw: String, path: String) -> FileDiff {
-    let lines = raw.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    let lines = raw.replacing("\r\n", with: "\n")
+      .split(separator: "\n", omittingEmptySubsequences: false)
+      .map(String.init)
 
     if lines.contains(where: { $0.hasPrefix("Binary files") || $0.hasPrefix("GIT binary patch") }) {
       return FileDiff(path: path, isBinary: true, hunks: [])
@@ -26,18 +26,20 @@ nonisolated enum UnifiedDiffParser {
     var newNumber = 0
 
     func flush() {
-      guard let pendingHeader, let pendingBounds else { return }
+      guard let header = pendingHeader, let bounds = pendingBounds else { return }
       hunks.append(
         DiffHunk(
-          header: pendingHeader,
-          oldStart: pendingBounds.oldStart,
-          oldCount: pendingBounds.oldCount,
-          newStart: pendingBounds.newStart,
-          newCount: pendingBounds.newCount,
+          header: header,
+          oldStart: bounds.oldStart,
+          oldCount: bounds.oldCount,
+          newStart: bounds.newStart,
+          newCount: bounds.newCount,
           lines: pendingLines
         )
       )
       pendingLines = []
+      pendingHeader = nil
+      pendingBounds = nil
     }
 
     for line in lines {

@@ -26,6 +26,8 @@ enum GitOperation: String {
   case remoteList = "remote_list"
   case fetchOrigin = "fetch_origin"
   case clone = "clone"
+  case changedFiles = "changed_files"
+  case fileDiff = "file_diff"
 }
 
 enum GitClientError: LocalizedError {
@@ -910,6 +912,95 @@ struct GitClient {
     } catch {
       return nil
     }
+  }
+
+  nonisolated func changedFiles(at worktreeURL: URL, scope: DiffScope) async throws -> [DiffFileSummary] {
+    let path = worktreeURL.path(percentEncoded: false)
+    let base = await diffBaseArguments(for: scope, worktreeURL: worktreeURL)
+
+    let nameStatus = try await runGit(
+      operation: .changedFiles,
+      arguments: ["-C", path, "diff", "--name-status", "--find-renames"] + base
+    )
+    let numstat = try await runGit(
+      operation: .changedFiles,
+      arguments: ["-C", path, "diff", "--numstat", "--find-renames"] + base
+    )
+
+    var untracked: [String] = []
+    switch scope {
+    case .staged:
+      break
+    case .workingTreeVsHead, .workingTreeVsBase:
+      let others = try await runGit(
+        operation: .changedFiles,
+        arguments: ["-C", path, "ls-files", "--others", "--exclude-standard"]
+      )
+      untracked =
+        others
+        .split(whereSeparator: \.isNewline)
+        .map { String($0).trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+    }
+
+    return ChangedFilesParser.parse(nameStatus: nameStatus, numstat: numstat, untracked: untracked)
+  }
+
+  nonisolated func fileDiff(at worktreeURL: URL, path filePath: String, scope: DiffScope) async throws -> FileDiff {
+    let repoPath = worktreeURL.path(percentEncoded: false)
+    let base = await diffBaseArguments(for: scope, worktreeURL: worktreeURL)
+    let raw = try await runGit(
+      operation: .fileDiff,
+      arguments: ["-C", repoPath, "diff"] + base + ["--", filePath]
+    )
+
+    // An empty diff for a file in the changed list means it is untracked
+    // (git diff doesn't show untracked content). Synthesize an all-addition
+    // diff from the on-disk file rather than relying on `--no-index`, whose
+    // nonzero exit code would surface as a thrown error.
+    if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return syntheticAdditionDiff(filePath: filePath, worktreeURL: worktreeURL)
+    }
+    return UnifiedDiffParser.parse(raw, path: filePath)
+  }
+
+  /// Builds the `git diff` ref/flag arguments for a scope. `.workingTreeVsBase`
+  /// resolves the base ref via `automaticWorktreeBaseRef`, falling back to HEAD.
+  nonisolated private func diffBaseArguments(for scope: DiffScope, worktreeURL: URL) async -> [String] {
+    switch scope {
+    case .workingTreeVsHead:
+      return ["HEAD"]
+    case .staged:
+      return ["--cached"]
+    case .workingTreeVsBase:
+      let base = await automaticWorktreeBaseRef(for: worktreeURL) ?? "HEAD"
+      return [base]
+    }
+  }
+
+  nonisolated private func syntheticAdditionDiff(filePath: String, worktreeURL: URL) -> FileDiff {
+    let fileURL = worktreeURL.appending(path: filePath)
+    guard let content = try? String(contentsOf: fileURL, encoding: .utf8) else {
+      // Unreadable as UTF-8 → treat as binary (no body).
+      return FileDiff(path: filePath, isBinary: true, hunks: [])
+    }
+    var fileLines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+    if fileLines.last == "" { fileLines.removeLast() }  // drop trailing-newline artifact
+    guard !fileLines.isEmpty else {
+      return FileDiff(path: filePath, isBinary: false, hunks: [])
+    }
+    let lines = fileLines.enumerated().map { index, text in
+      DiffLine(kind: .addition, oldNumber: nil, newNumber: index + 1, text: text)
+    }
+    let hunk = DiffHunk(
+      header: "@@ -0,0 +1,\(fileLines.count) @@",
+      oldStart: 0,
+      oldCount: 0,
+      newStart: 1,
+      newCount: fileLines.count,
+      lines: lines
+    )
+    return FileDiff(path: filePath, isBinary: false, hunks: [hunk])
   }
 
   nonisolated private func isWorktreeIndexLocked(_ worktreeURL: URL) async -> Bool {

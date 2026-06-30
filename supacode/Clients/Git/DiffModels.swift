@@ -1,10 +1,10 @@
 import Foundation
 
-enum DiffFileStatus: Equatable, Sendable {
+nonisolated enum DiffFileStatus: Equatable, Sendable {
   case added, modified, deleted, renamed, copied, untracked
 }
 
-struct DiffFileSummary: Equatable, Sendable, Identifiable {
+nonisolated struct DiffFileSummary: Equatable, Sendable, Identifiable {
   var id: String { newPath ?? oldPath ?? "" }
   let status: DiffFileStatus
   let oldPath: String?  // for renames/copies and deletions
@@ -14,21 +14,21 @@ struct DiffFileSummary: Equatable, Sendable, Identifiable {
   let isBinary: Bool
 }
 
-enum DiffScope: Equatable, Sendable {
+nonisolated enum DiffScope: Equatable, Sendable {
   case workingTreeVsHead  // uncommitted changes vs HEAD
   case workingTreeVsBase  // everything the worktree changed vs its base ref (DEFAULT)
   case staged  // staged changes (--cached)
 }
 
-struct DiffLine: Equatable, Sendable {
-  enum Kind: Equatable, Sendable { case context, addition, deletion, noNewlineMarker }
+nonisolated struct DiffLine: Equatable, Sendable {
+  nonisolated enum Kind: Equatable, Sendable { case context, addition, deletion, noNewlineMarker }
   let kind: Kind
   let oldNumber: Int?
   let newNumber: Int?
   let text: String
 }
 
-struct DiffHunk: Equatable, Sendable {
+nonisolated struct DiffHunk: Equatable, Sendable {
   let header: String  // the literal "@@ ... @@" line
   let oldStart: Int
   let oldCount: Int
@@ -37,7 +37,7 @@ struct DiffHunk: Equatable, Sendable {
   let lines: [DiffLine]
 }
 
-struct FileDiff: Equatable, Sendable {
+nonisolated struct FileDiff: Equatable, Sendable {
   let path: String
   let isBinary: Bool
   let hunks: [DiffHunk]

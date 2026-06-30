@@ -2,7 +2,7 @@ import Foundation
 
 /// Parses raw `git diff` output for a *single file* into a structured `FileDiff`.
 /// Pure and synchronous so it is unit-testable without shelling out.
-enum UnifiedDiffParser {
+nonisolated enum UnifiedDiffParser {
   /// The `@@` hunk-header bounds, grouped to avoid a large (>2 member) tuple.
   private struct HunkBounds {
     let oldStart: Int

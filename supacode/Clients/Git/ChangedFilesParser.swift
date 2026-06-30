@@ -2,7 +2,7 @@ import Foundation
 
 /// Merges `git diff --name-status --find-renames`, `git diff --numstat --find-renames`,
 /// and a `git ls-files --others` untracked list into `[DiffFileSummary]`. Pure/synchronous.
-enum ChangedFilesParser {
+nonisolated enum ChangedFilesParser {
   private struct Counts {
     let added: Int
     let removed: Int

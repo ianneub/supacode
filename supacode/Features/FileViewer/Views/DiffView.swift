@@ -26,12 +26,11 @@ struct DiffView: View {
     return max(2, String(maxNumber).count)
   }
 
-  /// A `LazyVStack` has no fixed cross-axis size inside a both-axes `ScrollView`,
-  /// so the layout engine can't place it and shoves the whole diff into the right
-  /// half of the pane with stray vertical gaps. Pinning the stack to the measured
-  /// width of its widest rendered row gives it a definite width — the diff lays
-  /// out flush top-left — while keeping the rows lazy. Measured once per file
-  /// (body only re-runs when `fileDiff` changes), not on scroll.
+  /// Measured pixel width of the widest rendered row — gutters plus the longest
+  /// line of code. Used as the stack's minimum width so long lines extend into the
+  /// horizontal scroll; the pane width takes over when the diff is narrower than
+  /// the pane (so rows still fill the full width). Measured once per file (body
+  /// only re-runs when `fileDiff` changes), not on scroll.
   private var contentWidth: CGFloat {
     let font = NSFont.monospacedSystemFont(
       ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
@@ -49,21 +48,32 @@ struct DiffView: View {
     } else if fileDiff.hunks.isEmpty {
       ContentUnavailableView("No changes", systemImage: "equal")
     } else {
-      ScrollView([.vertical, .horizontal]) {
-        LazyVStack(alignment: .leading, spacing: 0) {
-          ForEach(Array(fileDiff.hunks.enumerated()), id: \.offset) { _, hunk in
-            Text(hunk.header)
-              .font(.body.monospaced())
-              .foregroundStyle(.secondary)
-              .frame(maxWidth: .infinity, alignment: .leading)
-              .padding(.vertical, 2)
-              .background(.quaternary)
-            ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
-              DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
+      // A plain VStack (not LazyVStack): inside a both-axes ScrollView a LazyVStack
+      // can't resolve its cross-axis, so it mis-estimates row geometry — the diff
+      // gets shoved into the right half of the pane with stray vertical gaps
+      // between hunks. The GeometryReader lets us pin the content to a definite
+      // size: `max(contentWidth, pane width)` fills the pane yet still grows for
+      // long lines (horizontal scroll), and `minHeight: pane height` keeps a short
+      // diff flush at the top instead of letting the ScrollView center it.
+      GeometryReader { proxy in
+        ScrollView([.vertical, .horizontal]) {
+          VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(fileDiff.hunks.enumerated()), id: \.offset) { _, hunk in
+              Text(hunk.header)
+                .font(.body.monospaced())
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 2)
+                .padding(.leading, 4)
+                .background(.quaternary)
+              ForEach(Array(hunk.lines.enumerated()), id: \.offset) { _, line in
+                DiffLineRow(line: line, showsOld: showsOld, showsNew: showsNew, digitCount: digitCount)
+              }
             }
           }
+          .frame(width: max(contentWidth, proxy.size.width), alignment: .leading)
+          .frame(minHeight: proxy.size.height, alignment: .topLeading)
         }
-        .frame(width: contentWidth, alignment: .leading)
       }
       .textSelection(.enabled)
     }
@@ -87,6 +97,8 @@ private struct DiffLineRow: View {
         .padding(.leading, 8)
     }
     .padding(.leading, 4)
+    // Fill the stack's full width so the row tint spans the pane, not just the text.
+    .frame(maxWidth: .infinity, alignment: .leading)
     .background(rowBackground)
   }
 

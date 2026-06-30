@@ -6,4 +6,9 @@ nonisolated extension SharedReaderKey where Self == AppStorageKey<Double>.Defaul
   static var fileViewerPaneWidth: Self {
     Self[.appStorage("fileViewerPaneWidth"), default: 400]
   }
+
+  /// Persisted height (points) of the changed-file list inside the file-viewer pane.
+  static var fileViewerFileListHeight: Self {
+    Self[.appStorage("fileViewerFileListHeight"), default: 160]
+  }
 }

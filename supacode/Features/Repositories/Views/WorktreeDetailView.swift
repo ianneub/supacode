@@ -18,7 +18,6 @@ struct WorktreeDetailView: View {
   // Tracks the terminal-content window's fullscreen state for the open-menu toolbar
   // tint; the toolbar itself can't observe it (re-hosted in an accessory window).
   @State private var isToolbarFullScreen = false
-  @Shared(.fileViewerSplitRatio) private var fileViewerSplitRatio: Double
 
   private var agentBadgesEnabled: Bool { settingsFile.global.agentPresenceBadgesEnabled }
 
@@ -275,30 +274,29 @@ struct WorktreeDetailView: View {
       forceAutoFocus: shouldFocusTerminal,
       createTab: { store.send(.newTerminal) }
     )
-    Group {
+    // The terminal MUST stay an unconditional child in a stable structural
+    // position. Wrapping it in `if open { Split { terminal } } else { terminal }`
+    // moves it to a different branch on toggle, so SwiftUI re-creates it and
+    // the ghostty surface's render loop stalls (input stops painting until a
+    // tab switch / resize re-activates it). Here the terminal is always the
+    // first HStack child; only the FileViewer pane is conditional, so opening
+    // the pane just resizes the terminal in place (→ layout → ghostty reflow).
+    HStack(spacing: 0) {
+      terminal
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
       if let fileViewerStore = store.scope(
         state: \.repositories.fileViewer,
         action: \.repositories.fileViewer
       ) {
-        SplitView(
-          .horizontal,
-          Binding(
-            get: { CGFloat(fileViewerSplitRatio) },
-            set: { newValue in $fileViewerSplitRatio.withLock { $0 = Double(newValue) } }
-          ),
-          dividerColor: Color(nsColor: .separatorColor),
-          left: { terminal },
-          right: { FileViewerView(store: fileViewerStore) },
-          onEqualize: { $fileViewerSplitRatio.withLock { $0 = 0.6 } }
-        )
-      } else {
-        terminal
+        Divider()
+        FileViewerView(store: fileViewerStore)
+          .frame(width: 400)
+          .frame(maxHeight: .infinity)
       }
     }
     .id(worktree.id)
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .ignoresSafeArea(.container, edges: .bottom)
-    .animation(.easeInOut(duration: 0.2), value: store.repositories.fileViewer != nil)
     .onAppear {
       if shouldFocusTerminal {
         store.send(.repositories(.consumeTerminalFocus(worktree.id)))

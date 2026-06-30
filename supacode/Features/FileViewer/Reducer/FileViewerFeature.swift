@@ -16,7 +16,7 @@ struct FileViewerFeature {
     enum Mode: Equatable, Sendable {
       case source
       case diff
-      // `preview` (rendered markdown) arrives in Phase 3.
+      case preview  // rendered markdown
     }
 
     nonisolated struct Loaded: Equatable, Sendable {
@@ -70,8 +70,7 @@ struct FileViewerFeature {
       case .filesLoaded(let files):
         state.files = .loaded(files)
         // Auto-select the first changed file in diff mode so the pane isn't empty.
-        guard state.selectedPath == nil, let first = files.first?.newPath ?? files.first?.oldPath
-        else { return .none }
+        guard state.selectedPath == nil, let first = files.first?.id, !first.isEmpty else { return .none }
         state.selectedPath = first
         state.mode = .diff
         return Self.loadContent(state: &state, gitClient: gitClient, fileContent: fileContent)
@@ -81,8 +80,12 @@ struct FileViewerFeature {
         return .none
 
       case .fileTapped(let path):
+        guard state.selectedPath != path else { return .none }  // same-file no-op
         state.selectedPath = path
-        state.mode = .diff
+        // Preserve the current mode, but preview is only valid for markdown — fall back to source.
+        if state.mode == .preview, !Self.isMarkdown(path) {
+          state.mode = .source
+        }
         return Self.loadContent(state: &state, gitClient: gitClient, fileContent: fileContent)
 
       case .modeChanged(let mode):
@@ -107,6 +110,12 @@ struct FileViewerFeature {
     }
   }
 
+  /// Markdown files (`.md` / `.markdown`, case-insensitive) support preview mode.
+  static func isMarkdown(_ path: String) -> Bool {
+    let lower = path.lowercased()
+    return lower.hasSuffix(".md") || lower.hasSuffix(".markdown")
+  }
+
   /// Kicks a cancellable load of `selectedPath`'s content for the current mode.
   /// Sets `content = .loading` and returns the effect; no-op when nothing is selected.
   private static func loadContent(
@@ -125,7 +134,7 @@ struct FileViewerFeature {
         case .diff:
           let diff = try await gitClient.fileDiff(url, path, scope)
           await send(.contentLoaded(State.Loaded(rawText: nil, fileDiff: diff)))
-        case .source:
+        case .source, .preview:
           let text = try await fileContent.read(url.appending(path: path))
           await send(.contentLoaded(State.Loaded(rawText: text, fileDiff: nil)))
         }

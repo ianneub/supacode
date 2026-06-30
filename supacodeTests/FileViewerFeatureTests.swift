@@ -116,4 +116,92 @@ struct FileViewerFeatureTests {
     await store.send(.closeButtonTapped)
     await store.receive(\.delegate.close)
   }
+
+  @Test func modeChangedToPreviewReadsFileTextLikeSource() async {
+    let store = TestStore(
+      initialState: FileViewerFeature.State(
+        worktreeURL: worktreeURL,
+        selectedPath: "README.md",
+        mode: .diff,
+        content: .loaded(.init(rawText: nil, fileDiff: FileDiff(path: "README.md", isBinary: false, hunks: [])))
+      )
+    ) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.fileContent.read = { url in
+        #expect(url.path == "/tmp/wt/README.md")
+        return "# Title\n"
+      }
+    }
+    await store.send(.modeChanged(.preview)) {
+      $0.mode = .preview
+      $0.content = .loading
+    }
+    await store.receive(\.contentLoaded) {
+      $0.content = .loaded(FileViewerFeature.State.Loaded(rawText: "# Title\n", fileDiff: nil))
+    }
+  }
+
+  @Test func fileTappedPreservesModeButFallsBackFromPreviewOnNonMarkdown() async {
+    // In preview mode, tapping a non-markdown file falls back to source (preview invalid there).
+    let store = TestStore(
+      initialState: FileViewerFeature.State(
+        worktreeURL: worktreeURL,
+        files: .loaded([summary("a.swift")]),
+        selectedPath: "README.md",
+        mode: .preview
+      )
+    ) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.fileContent.read = { _ in "let x = 1\n" }
+    }
+    await store.send(.fileTapped("a.swift")) {
+      $0.selectedPath = "a.swift"
+      $0.mode = .source  // preview not valid for .swift → fall back to source
+      $0.content = .loading
+    }
+    await store.receive(\.contentLoaded) {
+      $0.content = .loaded(FileViewerFeature.State.Loaded(rawText: "let x = 1\n", fileDiff: nil))
+    }
+  }
+
+  @Test func fileTappedSameFileIsNoOp() async {
+    let store = TestStore(
+      initialState: FileViewerFeature.State(
+        worktreeURL: worktreeURL,
+        files: .loaded([summary("a.swift")]),
+        selectedPath: "a.swift",
+        mode: .diff,
+        content: .loaded(.init(rawText: nil, fileDiff: FileDiff(path: "a.swift", isBinary: false, hunks: [])))
+      )
+    ) {
+      FileViewerFeature()
+    }
+    await store.send(.fileTapped("a.swift"))  // same path, same mode → no state change, no effect
+  }
+
+  @Test func contentFailedStoresMessage() async {
+    let store = TestStore(
+      initialState: FileViewerFeature.State(worktreeURL: worktreeURL, selectedPath: "a.swift", mode: .diff)
+    ) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.fileContent.read = { _ in throw GitClientError.commandFailed(command: "read", message: "") }
+    }
+    await store.send(.modeChanged(.source)) {
+      $0.mode = .source
+      $0.content = .loading
+    }
+    await store.receive(\.contentFailed) {
+      $0.content = .failed("Git command failed: read")
+    }
+  }
+
+  @Test func isMarkdownDetectsExtensions() {
+    #expect(FileViewerFeature.isMarkdown("docs/readme.md"))
+    #expect(FileViewerFeature.isMarkdown("A.MARKDOWN"))
+    #expect(!FileViewerFeature.isMarkdown("src/main.swift"))
+    #expect(!FileViewerFeature.isMarkdown("noext"))
+  }
 }

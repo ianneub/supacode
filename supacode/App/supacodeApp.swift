@@ -75,45 +75,47 @@ final class SupacodeAppDelegate: NSObject, NSApplicationDelegate {
     // left open from a previous session can't survive the relaunch.
     NSColorPanel.shared.isRestorable = false
     appStore?.send(.appLaunched)
-    // The menu (incl. AppKit's auto Find items) finishes building shortly after
-    // launch; clear the stray ⌘E once it exists, with a delayed retry in case the
-    // Find items are added a beat later.
-    DispatchQueue.main.async { [weak self] in self?.releaseDuplicateToggleFileViewerShortcut() }
-    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-      self?.releaseDuplicateToggleFileViewerShortcut()
-    }
-    // Re-clear whenever a window becomes key, so a menu rebuild can't restore the chord.
-    NotificationCenter.default.addObserver(
-      forName: NSWindow.didBecomeKeyNotification,
-      object: nil,
-      queue: .main
-    ) { [weak self] _ in
-      MainActor.assumeIsolated { self?.releaseDuplicateToggleFileViewerShortcut() }
+    installToggleFileViewerKeyMonitor()
+  }
+
+  private var toggleFileViewerKeyMonitor: Any?
+
+  /// Capture the configured "Toggle File Viewer" chord at the event-monitor level.
+  /// The menu route can't win it: with the terminal focused, Ghostty consumes ⌘E
+  /// (it reaches the shell as input) and AppKit's built-in ⌘E "Use Selection for
+  /// Find" shadows our menu item, so the keystroke never reaches the command. A
+  /// local monitor sees the event first; it still reads the user's override (and
+  /// stays inert if they disabled the shortcut), so the Settings entry keeps working.
+  private func installToggleFileViewerKeyMonitor() {
+    toggleFileViewerKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+      let consume = MainActor.assumeIsolated { () -> Bool in
+        // Cheap early-out: only command chords can match, so normal typing is untouched.
+        guard event.modifierFlags.contains(.command), let appStore = self?.appStore else { return false }
+        @Shared(.settingsFile) var settingsFile
+        guard
+          let shortcut = AppShortcuts.toggleFileViewer.effective(from: settingsFile.global.shortcutOverrides),
+          Self.event(event, matches: shortcut)
+        else { return false }
+        appStore.send(.repositories(.toggleFileViewer))
+        return true
+      }
+      return consume ? nil : event  // swallow a match so it doesn't also reach the terminal / menu
     }
   }
 
-  /// AppKit auto-adds an Edit › Find › "Use Selection for Find" (⌘E) that stays
-  /// enabled (the terminal answers find actions) and sorts before our View-menu
-  /// "Toggle File Viewer", so it swallows ⌘E. Strip ⌘E from every menu item that
-  /// isn't our command — identified by title, which is selector/localization proof —
-  /// so the chord reaches the toggle. Re-applied on activation in case the menu rebuilds.
-  private func releaseDuplicateToggleFileViewerShortcut() {
-    func walk(_ menu: NSMenu?) {
-      guard let menu else { return }
-      for item in menu.items {
-        if item.keyEquivalent == "e", item.keyEquivalentModifierMask == .command,
-          item.title != "Toggle File Viewer"
-        {
-          item.keyEquivalent = ""
-        }
-        walk(item.submenu)
-      }
-    }
-    walk(NSApp.mainMenu)
+  /// Whether a key-down event is exactly `shortcut` (same modifiers, same key).
+  static func event(_ event: NSEvent, matches shortcut: AppShortcut) -> Bool {
+    let relevant: NSEvent.ModifierFlags = [.command, .shift, .option, .control]
+    var wanted: NSEvent.ModifierFlags = []
+    if shortcut.modifiers.contains(.command) { wanted.insert(.command) }
+    if shortcut.modifiers.contains(.shift) { wanted.insert(.shift) }
+    if shortcut.modifiers.contains(.option) { wanted.insert(.option) }
+    if shortcut.modifiers.contains(.control) { wanted.insert(.control) }
+    guard event.modifierFlags.intersection(relevant) == wanted else { return false }
+    return event.charactersIgnoringModifiers?.lowercased() == String(shortcut.keyEquivalent.character).lowercased()
   }
 
   func applicationDidBecomeActive(_ notification: Notification) {
-    releaseDuplicateToggleFileViewerShortcut()
     let app = NSApplication.shared
     // Filter `NSPanel` out of the visibility check — the system
     // color / font panels (and any sheet-attached child panels) are

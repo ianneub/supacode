@@ -37,22 +37,20 @@ struct FileViewerView: View {
   }
 
   private var header: some View {
-    // Preview only applies to markdown, but conditionally adding/removing the
-    // segment makes the segmented control re-equalize all segments to the widest
-    // label, shifting Diff/Source as the user scrolls the file list. Keep all three
-    // segments always present (constant layout) and just disable Preview for
-    // non-markdown files instead.
-    let previewAvailable = store.selectedPath.map(FileViewerFeature.isMarkdown) ?? false
-    return HStack(spacing: 8) {
-      Picker("Mode", selection: Binding(get: { store.mode }, set: { store.send(.modeChanged($0)) })) {
-        Text("Diff").tag(FileViewerFeature.State.Mode.diff)
-        Text("Source").tag(FileViewerFeature.State.Mode.source)
-        Text("Preview").tag(FileViewerFeature.State.Mode.preview).disabled(!previewAvailable)
-      }
-      .pickerStyle(.segmented)
-      .labelsHidden()
-      .fixedSize()
+    HStack(spacing: 8) {
+      // Custom segmented control rather than a Picker: a native segmented control
+      // equalizes every segment to the widest label and ignores per-label widths,
+      // so conditionally showing the (wider) Preview segment shifted Diff/Source as
+      // the user scrolled files — and it won't visually distinguish a single
+      // disabled segment. This keeps Diff/Source at fixed positions and greys out
+      // Preview for non-markdown files.
+      ModePicker(
+        mode: store.mode,
+        previewAvailable: store.selectedPath.map(FileViewerFeature.isMarkdown) ?? false,
+        onSelect: { store.send(.modeChanged($0)) }
+      )
       .disabled(store.selectedPath == nil)
+      .opacity(store.selectedPath == nil ? 0.5 : 1)
       Spacer()
       Button {
         store.send(.closeButtonTapped)
@@ -116,6 +114,62 @@ struct FileViewerView: View {
         systemImage: "exclamationmark.triangle",
         description: Text(message)
       )
+    }
+  }
+}
+
+/// A fixed-width segmented control for the Diff / Source / Preview modes. Unlike a
+/// native segmented `Picker`, each segment is a constant width so Diff and Source
+/// never shift as the user scrolls between files, and the Preview segment can be
+/// greyed out (rather than removed) when the selected file isn't markdown.
+private struct ModePicker: View {
+  let mode: FileViewerFeature.State.Mode
+  let previewAvailable: Bool
+  let onSelect: (FileViewerFeature.State.Mode) -> Void
+
+  private var segments: [(mode: FileViewerFeature.State.Mode, title: String)] {
+    [(.diff, "Diff"), (.source, "Source"), (.preview, "Preview")]
+  }
+
+  var body: some View {
+    HStack(spacing: 2) {
+      ForEach(segments, id: \.mode) { segment in
+        let enabled = segment.mode != .preview || previewAvailable
+        let selected = mode == segment.mode
+        Button {
+          onSelect(segment.mode)
+        } label: {
+          Text(segment.title)
+            .frame(width: 64)
+            .padding(.vertical, 3)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(selectedTextStyle(selected: selected, enabled: enabled))
+        .background {
+          if selected {
+            RoundedRectangle(cornerRadius: 6).fill(Color.accentColor)
+          }
+        }
+        .disabled(!enabled)
+        .help(help(for: segment.mode, enabled: enabled))
+      }
+    }
+    .padding(2)
+    .background(RoundedRectangle(cornerRadius: 8).fill(.quaternary))
+    .fixedSize()
+  }
+
+  private func selectedTextStyle(selected: Bool, enabled: Bool) -> AnyShapeStyle {
+    if selected { return AnyShapeStyle(Color(nsColor: .alternateSelectedControlTextColor)) }
+    return enabled ? AnyShapeStyle(.primary) : AnyShapeStyle(.tertiary)
+  }
+
+  private func help(for mode: FileViewerFeature.State.Mode, enabled: Bool) -> String {
+    switch mode {
+    case .diff: "Show the unified diff"
+    case .source: "Show the file contents"
+    case .preview: enabled ? "Show the rendered Markdown" : "Preview is only available for Markdown files"
     }
   }
 }

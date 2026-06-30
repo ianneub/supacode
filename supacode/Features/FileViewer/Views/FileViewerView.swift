@@ -34,7 +34,7 @@ struct FileViewerView: View {
         store.send(.closeButtonTapped)
       } label: {
         Image(systemName: "xmark")
-          .accessibilityHidden(true)
+          .accessibilityLabel("Close file viewer")
       }
       .buttonStyle(.borderless)
       .help("Close the file viewer")

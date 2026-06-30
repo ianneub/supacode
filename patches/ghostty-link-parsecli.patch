@@ -1,5 +1,5 @@
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 13f78eea6..e39e6cfbd 100644
+index 13f78eea6..493da19b2 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -8543,10 +8543,23 @@ pub const RepeatableLink = struct {
@@ -11,12 +11,12 @@ index 13f78eea6..e39e6cfbd 100644
 -        _ = input_;
 -        return error.NotImplemented;
 +        const value = input_ orelse return error.ValueRequired;
-+        // Empty value resets the user-configured links. The built-in URL
-+        // matcher at index 0 is re-added by Config.default, not here.
-+        if (value.len == 0) {
-+            self.links.clearRetainingCapacity();
-+            return;
-+        }
++        // An empty value is a no-op, NOT a reset: the built-in URL matcher
++        // lives at links[0] (seeded by Config.default), so clearing the list
++        // would drop URL clicking and would panic the `link-url=false` slice
++        // (`items[1..]` on an empty list). supacode never emits an empty
++        // `link`, so ignoring it is the safe minimal behavior.
++        if (value.len == 0) return;
 +        // supacode minimal form: the entire value is the regex. The action is
 +        // always the system opener and the link is clickable on cmd/ctrl-hover,
 +        // mirroring the built-in URL link. supacode intercepts the resulting

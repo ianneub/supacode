@@ -550,6 +550,7 @@ final class GhosttyRuntime {
     window-padding-x = 14
     window-padding-y = 12,0
     background-opacity = 0
+    link = (?:\\./|/|\\.\\./|[\\w.\\-]+/)[\\w./\\-]+(?::\\d+(?::\\d+)?)?
     """
 
   /// Reports Supacode in `TERM_PROGRAM` so programs detect the real host

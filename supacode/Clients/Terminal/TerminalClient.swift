@@ -99,6 +99,9 @@ struct TerminalClient {
     /// menu / focused-action gates read one Bool instead of iterating
     /// `sidebarItems` from a view body.
     case terminalHasAnySurfaceChanged(hasAny: Bool)
+    /// Emitted when a cmd-clicked path token resolves to a file inside the worktree.
+    /// Routed by `AppFeature` into `RepositoriesFeature.openFileInViewer`.
+    case openWorktreeFileRequested(worktreeID: Worktree.ID, path: String, line: Int?)
   }
 }
 

@@ -71,6 +71,9 @@ final class GhosttySurfaceBridge {
   // metadata). Forwarded raw; the per-surface capability token carried in the
   // metadata is verified one layer up where the surface's nonce lives.
   var onContextSignal: ((UInt8, String, String) -> Void)?
+  /// Cmd-clicked file-path token (raw matched text) + the surface's pwd.
+  /// Return true if handled (opened in-app); false to fall through to NSWorkspace.
+  var onOpenWorktreeFile: ((_ rawToken: String, _ pwd: String?) -> Bool)?
 
   // Coalesce OSC-9 progress: a flush task applies the latest value at the
   // throttle cadence while it moves, and a slow stale-watch clears a bar whose
@@ -456,6 +459,9 @@ final class GhosttySurfaceBridge {
       state.openUrlKind = openUrl.kind
       let rawUrl = string(from: openUrl.url, length: openUrl.len)
       state.openUrl = rawUrl
+      if let rawUrl, onOpenWorktreeFile?(rawUrl, state.pwd) == true {
+        return true
+      }
       if let request = ghosttyOpenURLRequest(urlString: rawUrl, kind: openUrl.kind) {
         SupaLogger("GhosttySurfaceBridge").debug("OPEN_URL raw=\(rawUrl ?? "nil") resolved=\(request.url)")
         NSWorkspace.shared.open(request.url)

@@ -432,6 +432,8 @@ struct RepositoriesFeature {
     case alert(PresentationAction<Alert>)
     case fileViewer(FileViewerFeature.Action)
     case toggleFileViewer
+    /// Route a terminal cmd-click into the FileViewer pane for the given worktree.
+    case openFileInViewer(worktreeID: Worktree.ID, path: String, line: Int?)
     case delegate(Delegate)
   }
 
@@ -3260,6 +3262,17 @@ struct RepositoriesFeature {
         }
         state.fileViewer = FileViewerFeature.State(worktreeURL: localURL)
         return .none
+
+      case .openFileInViewer(let worktreeID, let path, let line):
+        guard
+          let worktree = state.worktree(for: worktreeID),
+          let localURL = worktree.localWorkingDirectory
+        else { return .none }
+        // Create the pane if absent or if it's currently scoped to a different worktree.
+        if state.fileViewer == nil || state.fileViewer?.worktreeURL != localURL {
+          state.fileViewer = FileViewerFeature.State(worktreeURL: localURL)
+        }
+        return .send(.fileViewer(.openFile(path: path, line: line)))
 
       case .fileViewer(.delegate(.close)):
         return state.closeFileViewer()

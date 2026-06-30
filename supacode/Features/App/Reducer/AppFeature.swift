@@ -1131,6 +1131,9 @@ struct AppFeature {
       case .terminalEvent(.agentHookEventReceived(let event)):
         return .send(.agentPresence(.hookEventReceived(event)))
 
+      case .terminalEvent(.openWorktreeFileRequested(let worktreeID, let path, let line)):
+        return .send(.repositories(.openFileInViewer(worktreeID: worktreeID, path: path, line: line)))
+
       case .terminalEvent:
         return .none
       }

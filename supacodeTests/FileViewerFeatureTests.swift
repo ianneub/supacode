@@ -204,4 +204,47 @@ struct FileViewerFeatureTests {
     #expect(!FileViewerFeature.isMarkdown("src/main.swift"))
     #expect(!FileViewerFeature.isMarkdown("noext"))
   }
+
+  // MARK: - openFile (terminal cmd-click entry point)
+
+  @Test func openFileSwiftSetsSourceModeAndLoadsContent() async {
+    let store = TestStore(initialState: FileViewerFeature.State(worktreeURL: worktreeURL)) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.fileContent.read = { _ in "let x = 1\n" }
+    }
+    await store.send(.openFile(path: "src/main.swift", line: 42)) {
+      $0.selectedPath = "src/main.swift"
+      $0.targetLine = 42
+      $0.mode = .source
+      $0.content = .loading
+    }
+    await store.receive(\.contentLoaded) {
+      $0.content = .loaded(FileViewerFeature.State.Loaded(rawText: "let x = 1\n", fileDiff: nil))
+    }
+  }
+
+  @Test func openFileMarkdownSetsPreviewModeAndLoadsContent() async {
+    let store = TestStore(initialState: FileViewerFeature.State(worktreeURL: worktreeURL)) {
+      FileViewerFeature()
+    } withDependencies: {
+      $0.fileContent.read = { _ in "# Title\n" }
+    }
+    await store.send(.openFile(path: "docs/README.md", line: nil)) {
+      $0.selectedPath = "docs/README.md"
+      $0.targetLine = nil
+      $0.mode = .preview
+      $0.content = .loading
+    }
+    await store.receive(\.contentLoaded) {
+      $0.content = .loaded(FileViewerFeature.State.Loaded(rawText: "# Title\n", fileDiff: nil))
+    }
+  }
+
+  @Test func defaultModeReturnsPreviewForMarkdownSourceForOthers() {
+    #expect(FileViewerFeature.defaultMode(forPath: "README.md") == .preview)
+    #expect(FileViewerFeature.defaultMode(forPath: "NOTES.MARKDOWN") == .preview)
+    #expect(FileViewerFeature.defaultMode(forPath: "src/main.swift") == .source)
+    #expect(FileViewerFeature.defaultMode(forPath: "Makefile") == .source)
+  }
 }

@@ -10,6 +10,9 @@ struct FileViewerFeature {
     var diffScope: DiffScope = .workingTreeVsBase
     var files: FileViewerLoadState<[DiffFileSummary]> = .idle
     var selectedPath: String?
+    /// Line to scroll to after `openFile` sets the selected path. Carried for
+    /// Phase 4; visual scroll-to-line in the content view is a follow-up task.
+    var targetLine: Int?
     var mode: Mode = .diff
     var content: FileViewerLoadState<Loaded> = .idle
 
@@ -30,6 +33,9 @@ struct FileViewerFeature {
     case filesLoaded([DiffFileSummary])
     case filesFailed(String)
     case fileTapped(String)
+    /// Open a specific file (from a terminal cmd-click). Sets `selectedPath`,
+    /// `targetLine`, and `mode` (markdown → preview, else source), then loads content.
+    case openFile(path: String, line: Int?)
     case modeChanged(State.Mode)
     case contentLoaded(State.Loaded)
     case contentFailed(String)
@@ -88,6 +94,12 @@ struct FileViewerFeature {
         }
         return Self.loadContent(state: &state, gitClient: gitClient, fileContent: fileContent)
 
+      case .openFile(let path, let line):
+        state.selectedPath = path
+        state.targetLine = line
+        state.mode = Self.defaultMode(forPath: path)
+        return Self.loadContent(state: &state, gitClient: gitClient, fileContent: fileContent)
+
       case .modeChanged(let mode):
         guard state.mode != mode else { return .none }
         state.mode = mode
@@ -114,6 +126,11 @@ struct FileViewerFeature {
   static func isMarkdown(_ path: String) -> Bool {
     let lower = path.lowercased()
     return lower.hasSuffix(".md") || lower.hasSuffix(".markdown")
+  }
+
+  /// Default display mode for a path opened via cmd-click: preview for markdown, source for everything else.
+  static func defaultMode(forPath path: String) -> State.Mode {
+    isMarkdown(path) ? .preview : .source
   }
 
   /// Kicks a cancellable load of `selectedPath`'s content for the current mode.

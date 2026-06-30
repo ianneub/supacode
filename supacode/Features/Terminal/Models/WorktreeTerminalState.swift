@@ -180,6 +180,9 @@ final class WorktreeTerminalState {
   var onSetupScriptConsumed: (() -> Void)?
   /// Forwarded to the manager so it can emit a `surfacesClosed` event into TCA.
   var onSurfacesClosed: ((Set<UUID>) -> Void)?
+  /// Fires when a cmd-clicked token resolves to an in-worktree file.
+  /// Manager emits `openWorktreeFileRequested` into the event stream.
+  var onOpenWorktreeFile: ((String, Int?) -> Void)?
   /// Forwarded to the manager's `dispatchHookEvent` so an OSC-sourced presence
   /// event joins the same funnel as the socket path (idle-debounce, badge).
   var onAgentHookEvent: ((AgentHookEvent) -> Void)?
@@ -1579,6 +1582,14 @@ final class WorktreeTerminalState {
       guard let self, let view else { return }
       guard self.isLiveSurface(view) else { return }
       self.handleAgentOSCNotification(title: title, body: body, surfaceID: view.id)
+    }
+    view.bridge.onOpenWorktreeFile = { [weak self, weak view] rawToken, pwd in
+      guard let self, let view, self.isLiveSurface(view) else { return false }
+      guard let root = self.worktree.localWorkingDirectory,
+        let resolved = TerminalFileLink.resolve(rawToken: rawToken, pwd: pwd, worktreeRoot: root)
+      else { return false }
+      self.onOpenWorktreeFile?(resolved.relativePath, resolved.line)
+      return true
     }
     view.bridge.onContextSignal = { [weak self, weak view] _, id, metadata in
       guard let self, let view else { return }

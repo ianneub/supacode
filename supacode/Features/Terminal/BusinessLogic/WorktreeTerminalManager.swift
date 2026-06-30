@@ -513,6 +513,9 @@ final class WorktreeTerminalManager {
     state.onSetupScriptConsumed = { [weak self] in
       self?.emit(.setupScriptConsumed(worktreeID: worktree.id))
     }
+    state.onOpenWorktreeFile = { [weak self] path, line in
+      self?.emit(.openWorktreeFileRequested(worktreeID: worktree.id, path: path, line: line))
+    }
     state.onTabProjectionChanged = { [weak self] projection in
       self?.emit(.tabProjectionChanged(worktreeID: worktree.id, projection))
       self?.markLayoutDirty(worktreeID: worktree.id)

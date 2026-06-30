@@ -59,6 +59,20 @@ struct DiffView: View {
     return max(2, String(maxNumber).count)
   }
 
+  /// The monospaced body font the rows render in (also used to measure widths/heights).
+  private var rowFont: NSFont {
+    NSFont.monospacedSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
+  }
+
+  /// Fixed, uniform row height = one monospaced line. Every row is pinned to this so
+  /// the List/NSTableView can stay lazy: self-sizing rows force it to lay out every
+  /// row's text up front, which stalls a large diff for ~1.5s. Uniform heights keep
+  /// it to the on-screen rows. (It also removes the inter-line gap the default min
+  /// height added.)
+  private var rowHeight: CGFloat {
+    NSLayoutManager().defaultLineHeight(for: rowFont)
+  }
+
   /// Measured pixel width of the widest rendered row — gutters plus the longest
   /// line of code. The List is pinned to this (or the pane width, whichever is
   /// larger) so long lines extend into the horizontal scroll while a narrow diff
@@ -66,11 +80,9 @@ struct DiffView: View {
   /// `fileDiff` changes), not on scroll. `utf8.count` (not grapheme `count`) picks
   /// the longest line cheaply on big diffs.
   private var contentWidth: CGFloat {
-    let font = NSFont.monospacedSystemFont(
-      ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .regular)
-    let digitW = ("0" as NSString).size(withAttributes: [.font: font]).width
+    let digitW = ("0" as NSString).size(withAttributes: [.font: rowFont]).width
     let longest = fileDiff.hunks.lazy.flatMap(\.lines).max { $0.text.utf8.count < $1.text.utf8.count }?.text ?? ""
-    let textW = ("+ " + longest as NSString).size(withAttributes: [.font: font]).width
+    let textW = ("+ " + longest as NSString).size(withAttributes: [.font: rowFont]).width
     let gutters = CGFloat((showsOld ? 1 : 0) + (showsNew ? 1 : 0))
     // 4 (row leading) + per-gutter (digits + 6 pad) + 8 (text leading) + text + slack
     return 4 + gutters * (digitW * CGFloat(digitCount) + 6) + 8 + textW + 16
@@ -89,15 +101,16 @@ struct DiffView: View {
         ScrollView(.horizontal) {
           List(rows) { row in
             rowView(row)
+              // Uniform fixed height keeps the List lazy (see `rowHeight`) and removes
+              // the default inter-row gap.
+              .frame(height: rowHeight)
               .listRowInsets(EdgeInsets())
               .listRowSeparator(.hidden)
               .listRowBackground(Color.clear)
           }
           .listStyle(.plain)
           .scrollContentBackground(.hidden)
-          // Let rows shrink to the text height; the default min row height adds
-          // visible vertical gaps between diff lines.
-          .environment(\.defaultMinListRowHeight, 1)
+          .environment(\.defaultMinListRowHeight, rowHeight)
           .frame(width: max(contentWidth, proxy.size.width), height: proxy.size.height)
         }
       }
@@ -110,8 +123,7 @@ struct DiffView: View {
       Text(header)
         .font(.body.monospaced())
         .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.leading, 4)
         .background(.quaternary)
     case .line(let line):

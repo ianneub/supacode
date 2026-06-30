@@ -28,10 +28,17 @@ struct ContentView: View {
     self.terminalManager = terminalManager
   }
 
-  /// Only git worktrees with a local checkout have a diff to show.
+  /// Only git worktrees with a local checkout have a diff to show. Reads observed
+  /// store properties directly (not `.state`) so the menu enables/disables as the
+  /// selection changes.
   private var canToggleFileViewer: Bool {
-    let state = repositoriesStore.state
-    return state.worktree(for: state.selectedWorktreeID)?.localWorkingDirectory != nil
+    guard let id = repositoriesStore.selectedWorktreeID else { return false }
+    for repository in repositoriesStore.repositories {
+      if let worktree = repository.worktrees[id: id] {
+        return worktree.localWorkingDirectory != nil
+      }
+    }
+    return false
   }
 
   var body: some View {

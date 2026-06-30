@@ -38,18 +38,20 @@ struct FileViewerView: View {
 
   private var header: some View {
     HStack(spacing: 8) {
+      // Fixed-width segment labels so Diff/Source keep their exact positions when
+      // the Preview segment appears/disappears across files. A segmented control
+      // otherwise equalizes every segment to the widest label, so adding the wider
+      // "Preview" nudges Diff and Source as you scroll the file list.
       Picker("Mode", selection: Binding(get: { store.mode }, set: { store.send(.modeChanged($0)) })) {
-        Text("Diff").tag(FileViewerFeature.State.Mode.diff)
-        Text("Source").tag(FileViewerFeature.State.Mode.source)
+        Text("Diff").frame(width: 64).tag(FileViewerFeature.State.Mode.diff)
+        Text("Source").frame(width: 64).tag(FileViewerFeature.State.Mode.source)
         if let path = store.selectedPath, FileViewerFeature.isMarkdown(path) {
-          Text("Preview").tag(FileViewerFeature.State.Mode.preview)
+          Text("Preview").frame(width: 64).tag(FileViewerFeature.State.Mode.preview)
         }
       }
       .pickerStyle(.segmented)
       .labelsHidden()
-      // Leading-align so the control doesn't recenter (and shift) when the
-      // Preview segment appears/disappears for markdown files.
-      .frame(maxWidth: 220, alignment: .leading)
+      .fixedSize()
       .disabled(store.selectedPath == nil)
       Spacer()
       Button {

@@ -183,6 +183,8 @@ struct RepositoriesFeature {
     @Presents var remoteConnectionForm: RemoteConnectionFormFeature.State?
     @Presents var cloneRepositoryForm: CloneRepositoryFormFeature.State?
     @Presents var alert: AlertState<Alert>?
+    /// The file-viewer side pane for the selected worktree. `nil` = pane closed.
+    var fileViewer: FileViewerFeature.State?
 
     // MARK: - Sidebar items (per-row TCA collection).
     var sidebarItems: IdentifiedArrayOf<SidebarItemFeature.State> = []
@@ -428,6 +430,8 @@ struct RepositoriesFeature {
     case worktreeCustomization(PresentationAction<WorktreeCustomizationFeature.Action>)
     case renameBranchPrompt(PresentationAction<RenameBranchFeature.Action>)
     case alert(PresentationAction<Alert>)
+    case fileViewer(FileViewerFeature.Action)
+    case toggleFileViewer
     case delegate(Delegate)
   }
 
@@ -3243,6 +3247,28 @@ struct RepositoriesFeature {
         }
         return .none
 
+      case .toggleFileViewer:
+        if state.fileViewer != nil {
+          state.fileViewer = nil
+          return .none
+        }
+        guard
+          let worktree = state.worktree(for: state.selectedWorktreeID),
+          let localURL = worktree.localWorkingDirectory
+        else {
+          // Folder/remote worktrees have no local diff surface — ignore.
+          return .none
+        }
+        state.fileViewer = FileViewerFeature.State(worktreeURL: localURL)
+        return .none
+
+      case .fileViewer(.delegate(.close)):
+        state.fileViewer = nil
+        return .none
+
+      case .fileViewer:
+        return .none
+
       case .selectArchivedWorktrees:
         state.selection = .archivedWorktrees
         state.sidebarSelectedWorktreeIDs = []
@@ -3258,7 +3284,11 @@ struct RepositoriesFeature {
         return .none
 
       case .selectWorktree(let worktreeID, let focusTerminal):
+        let previousWorktreeID = state.selectedWorktreeID
         state.setSingleWorktreeSelection(worktreeID)
+        if state.fileViewer != nil, worktreeID != previousWorktreeID {
+          state.fileViewer = nil
+        }
         let selectedWorktree = state.worktree(for: worktreeID)
         var effects: [Effect<Action>] = [
           .send(.delegate(.selectedWorktreeChanged(selectedWorktree)))
@@ -3923,6 +3953,9 @@ struct RepositoriesFeature {
     }
     .ifLet(\.$renameBranchPrompt, action: \.renameBranchPrompt) {
       RenameBranchFeature()
+    }
+    .ifLet(\.fileViewer, action: \.fileViewer) {
+      FileViewerFeature()
     }
     Self.worktreeCustomizationReducer
       .ifLet(\.$worktreeCustomization, action: \.worktreeCustomization) {

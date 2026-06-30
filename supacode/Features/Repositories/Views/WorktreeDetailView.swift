@@ -18,6 +18,7 @@ struct WorktreeDetailView: View {
   // Tracks the terminal-content window's fullscreen state for the open-menu toolbar
   // tint; the toolbar itself can't observe it (re-hosted in an accessory window).
   @State private var isToolbarFullScreen = false
+  @Shared(.fileViewerSplitRatio) private var fileViewerSplitRatio: Double
 
   private var agentBadgesEnabled: Bool { settingsFile.global.agentPresenceBadgesEnabled }
 
@@ -120,7 +121,9 @@ struct WorktreeDetailView: View {
           },
           onManageGlobalScripts: {
             store.send(.settings(.setSelection(.scripts)))
-          }
+          },
+          onToggleFileViewer: { store.send(.repositories(.toggleFileViewer)) },
+          isFileViewerToggleDisabled: selectedWorktree.localWorkingDirectory == nil
         )
       }
     }
@@ -244,22 +247,11 @@ struct WorktreeDetailView: View {
       } else if let selectedWorktree {
         let shouldRunSetupScript = selectedSlice?.lifecycle == .pending
         let shouldFocusTerminal = repositories.shouldFocusTerminal(for: selectedWorktree.id)
-        WorktreeTerminalTabsView(
+        activeWorktreeContent(
           worktree: selectedWorktree,
-          manager: terminalManager,
-          terminalsStore: store.scope(state: \.terminals, action: \.terminals),
           shouldRunSetupScript: shouldRunSetupScript,
-          forceAutoFocus: shouldFocusTerminal,
-          createTab: { store.send(.newTerminal) }
+          shouldFocusTerminal: shouldFocusTerminal
         )
-        .id(selectedWorktree.id)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea(.container, edges: .bottom)
-        .onAppear {
-          if shouldFocusTerminal {
-            store.send(.repositories(.consumeTerminalFocus(selectedWorktree.id)))
-          }
-        }
       } else if !repositories.isInitialLoadComplete {
         DetailPlaceholderView()
       } else {
@@ -267,6 +259,51 @@ struct WorktreeDetailView: View {
       }
     }
     .windowTintColorScheme(manager: terminalManager)
+  }
+
+  @ViewBuilder
+  private func activeWorktreeContent(
+    worktree: Worktree,
+    shouldRunSetupScript: Bool,
+    shouldFocusTerminal: Bool
+  ) -> some View {
+    let terminal = WorktreeTerminalTabsView(
+      worktree: worktree,
+      manager: terminalManager,
+      terminalsStore: store.scope(state: \.terminals, action: \.terminals),
+      shouldRunSetupScript: shouldRunSetupScript,
+      forceAutoFocus: shouldFocusTerminal,
+      createTab: { store.send(.newTerminal) }
+    )
+    Group {
+      if let fileViewerStore = store.scope(
+        state: \.repositories.fileViewer,
+        action: \.repositories.fileViewer
+      ) {
+        SplitView(
+          .horizontal,
+          Binding(
+            get: { CGFloat(fileViewerSplitRatio) },
+            set: { newValue in $fileViewerSplitRatio.withLock { $0 = Double(newValue) } }
+          ),
+          dividerColor: Color(nsColor: .separatorColor),
+          left: { terminal },
+          right: { FileViewerView(store: fileViewerStore) },
+          onEqualize: { $fileViewerSplitRatio.withLock { $0 = 0.6 } }
+        )
+      } else {
+        terminal
+      }
+    }
+    .id(worktree.id)
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+    .ignoresSafeArea(.container, edges: .bottom)
+    .animation(.easeInOut(duration: 0.2), value: store.repositories.fileViewer != nil)
+    .onAppear {
+      if shouldFocusTerminal {
+        store.send(.repositories(.consumeTerminalFocus(worktree.id)))
+      }
+    }
   }
 
   private func applyFocusedActions<Content: View>(
@@ -469,6 +506,8 @@ struct WorktreeDetailView: View {
     let onStopRunScripts: () -> Void
     let onManageRepoScripts: () -> Void
     let onManageGlobalScripts: () -> Void
+    var onToggleFileViewer: () -> Void = {}
+    var isFileViewerToggleDisabled: Bool = false
 
     var body: some ToolbarContent {
       ToolbarItem(placement: .navigation) {
@@ -515,6 +554,14 @@ struct WorktreeDetailView: View {
         // Rebuild the NSMenu when any field changes (#280) so renames propagate without a worktree switch.
         .id(toolbarState.scriptMenuIdentity)
         .transaction { $0.animation = nil }
+      }
+      ToolbarItem(placement: .primaryAction) {
+        Button(action: onToggleFileViewer) {
+          Image(systemName: "sidebar.squares.right")
+            .accessibilityLabel("Show changed files")
+        }
+        .help("Show changed files and diffs (side pane)")
+        .disabled(isFileViewerToggleDisabled)
       }
     }
 

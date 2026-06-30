@@ -481,6 +481,8 @@ extension RepositoriesFeature.Action {
       .contextMenuOpenWorktree,
       .worktreeCreationPrompt,
       .alert,
+      .toggleFileViewer,
+      .fileViewer,
       .delegate:
       return []
     }

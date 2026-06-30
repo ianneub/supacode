@@ -946,6 +946,19 @@ struct GitClient {
     return ChangedFilesParser.parse(nameStatus: nameStatus, numstat: numstat, untracked: untracked)
   }
 
+  /// Unified diff for one file under `scope`.
+  ///
+  /// IMPORTANT — same-scope contract: callers must request the diff with the
+  /// SAME `scope` they passed to `changedFiles(at:scope:)` to list the file.
+  /// The empty-diff fallback below assumes an empty `git diff` means the file
+  /// is untracked. That only holds when the file came from this scope's
+  /// changed-file list: if a file is tracked-and-unchanged *in the requested
+  /// scope* (e.g. listed under `.workingTreeVsBase` but diffed under `.staged`),
+  /// `git diff` is also empty and this would synthesize a misleading
+  /// whole-file all-additions diff. Phase 2 must thread one `DiffScope` through
+  /// both calls. Renames are diffed against `newPath` without `--find-renames`,
+  /// so a renamed file renders as all-additions and its line counts will not
+  /// match the rename summary's `added`/`removed`.
   nonisolated func fileDiff(at worktreeURL: URL, path filePath: String, scope: DiffScope) async throws -> FileDiff {
     let repoPath = worktreeURL.path(percentEncoded: false)
     let base = await diffBaseArguments(for: scope, worktreeURL: worktreeURL)
@@ -957,7 +970,9 @@ struct GitClient {
     // An empty diff for a file in the changed list means it is untracked
     // (git diff doesn't show untracked content). Synthesize an all-addition
     // diff from the on-disk file rather than relying on `--no-index`, whose
-    // nonzero exit code would surface as a thrown error.
+    // nonzero exit code would surface as a thrown error. See the same-scope
+    // contract above — this fallback is only correct for genuinely untracked
+    // files surfaced by the matching `changedFiles(at:scope:)` call.
     if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       return syntheticAdditionDiff(filePath: filePath, worktreeURL: worktreeURL)
     }

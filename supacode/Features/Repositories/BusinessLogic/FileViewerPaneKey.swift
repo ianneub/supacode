@@ -2,8 +2,8 @@ import ComposableArchitecture
 import Foundation
 
 nonisolated extension SharedReaderKey where Self == AppStorageKey<Double>.Default {
-  /// Persisted left-pane (terminal) fraction of the worktree-detail split, 0...1.
-  static var fileViewerSplitRatio: Self {
-    Self[.appStorage("fileViewerSplitRatio"), default: 0.6]
+  /// Persisted width (points) of the file-viewer side pane.
+  static var fileViewerPaneWidth: Self {
+    Self[.appStorage("fileViewerPaneWidth"), default: 400]
   }
 }

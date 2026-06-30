@@ -18,6 +18,11 @@ struct WorktreeDetailView: View {
   // Tracks the terminal-content window's fullscreen state for the open-menu toolbar
   // tint; the toolbar itself can't observe it (re-hosted in an accessory window).
   @State private var isToolbarFullScreen = false
+  @Shared(.fileViewerPaneWidth) private var fileViewerPaneWidth: Double
+  // Live width during a divider drag — local @State so dragging tracks the
+  // cursor 1:1 without a per-tick @Shared/UserDefaults write. Seeded from the
+  // persisted value when the pane appears; committed back on drag end.
+  @State private var livePaneWidth: Double = 400
 
   private var agentBadgesEnabled: Bool { settingsFile.global.agentPresenceBadgesEnabled }
 
@@ -288,10 +293,16 @@ struct WorktreeDetailView: View {
         state: \.repositories.fileViewer,
         action: \.repositories.fileViewer
       ) {
-        Divider()
+        FileViewerPaneDivider(
+          width: $livePaneWidth,
+          minWidth: 260,
+          maxWidth: 900,
+          onCommit: { $fileViewerPaneWidth.withLock { $0 = livePaneWidth } }
+        )
         FileViewerView(store: fileViewerStore)
-          .frame(width: 400)
+          .frame(width: CGFloat(min(max(livePaneWidth, 260), 900)))
           .frame(maxHeight: .infinity)
+          .onAppear { livePaneWidth = fileViewerPaneWidth }
       }
     }
     .id(worktree.id)
@@ -1213,4 +1224,61 @@ private struct WorktreeToolbarPreview: View {
 
 #Preview("Worktree Toolbar") {
   WorktreeToolbarPreview()
+}
+
+/// A draggable separator that resizes the file-viewer side pane. Lives between
+/// the terminal and the pane in an `HStack`; the pane is to its right, so
+/// dragging left widens it. `width` is the parent's live `@State` (updated 1:1
+/// during the drag); `onCommit` persists it once the drag ends. A drag-start
+/// anchor avoids cumulative drift. The visible line is 1pt but the grab area is
+/// wide and shows a resize cursor so it doesn't require pixel-perfect aim.
+private struct FileViewerPaneDivider: View {
+  @Binding var width: Double
+  let minWidth: Double
+  let maxWidth: Double
+  let onCommit: () -> Void
+
+  private let grabWidth: CGFloat = 16
+
+  @State private var isHovering = false
+  @State private var dragStartWidth: Double?
+
+  var body: some View {
+    // A transparent grab strip wide enough to hit easily, with the visible 1pt
+    // separator centered in it.
+    Color.clear
+      .frame(width: grabWidth)
+      .frame(maxHeight: .infinity)
+      .overlay {
+        Rectangle()
+          .fill(Color(nsColor: .separatorColor))
+          .frame(width: 1)
+      }
+      .contentShape(.rect)
+      .onHover { hovering in
+        guard hovering != isHovering else { return }
+        isHovering = hovering
+        if hovering {
+          NSCursor.resizeLeftRight.push()
+        } else {
+          NSCursor.pop()
+        }
+      }
+      .gesture(
+        // Measure in GLOBAL space: the divider moves as the pane resizes during
+        // the drag, so a `.local` translation would be relative to a shifting
+        // origin (a feedback loop where the pane resizes at the wrong rate).
+        // Global space is fixed, so translation == true cursor movement → 1:1.
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+          .onChanged { value in
+            let start = dragStartWidth ?? width
+            if dragStartWidth == nil { dragStartWidth = start }
+            width = min(max(minWidth, start - value.translation.width), maxWidth)
+          }
+          .onEnded { _ in
+            dragStartWidth = nil
+            onCommit()
+          }
+      )
+  }
 }

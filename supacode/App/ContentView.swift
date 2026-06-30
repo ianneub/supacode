@@ -28,6 +28,12 @@ struct ContentView: View {
     self.terminalManager = terminalManager
   }
 
+  /// Only git worktrees with a local checkout have a diff to show.
+  private var canToggleFileViewer: Bool {
+    let state = repositoriesStore.state
+    return state.worktree(for: state.selectedWorktreeID)?.localWorkingDirectory != nil
+  }
+
   var body: some View {
     #if DEBUG
       let _ = contentRenderLogger.info("ContentView.body re-rendered")
@@ -105,6 +111,9 @@ struct ContentView: View {
       withAnimation(.easeOut(duration: 0.2)) {
         leftSidebarVisibility = leftSidebarVisibility == .detailOnly ? .all : .detailOnly
       }
+    }
+    .focusedSceneAction(\.toggleFileViewerAction, enabled: canToggleFileViewer) {
+      store.send(.repositories(.toggleFileViewer))
     }
     .focusedSceneAction(
       \.terminateAllTerminalSessionsAction,

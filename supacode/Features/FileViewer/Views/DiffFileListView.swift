@@ -8,10 +8,12 @@ struct DiffFileListView: View {
   let onTap: (String) -> Void
 
   var body: some View {
-    List(files, id: \.id, selection: .constant(selectedPath)) { file in
-      Button {
-        onTap(file.id)
-      } label: {
+    // Native List selection (not a per-row Button): a Button inside a scrolling
+    // List loses the tap that lands during scroll deceleration, so a quick click
+    // right after scrolling did nothing. List selection hit-tests the whole row
+    // reliably and also drives the row highlight.
+    List(selection: selectionBinding) {
+      ForEach(files, id: \.id) { file in
         HStack(spacing: 6) {
           Image(systemName: Self.symbol(for: file.status))
             .foregroundStyle(Self.color(for: file.status))
@@ -28,14 +30,17 @@ struct DiffFileListView: View {
             Text("-\(file.removed)").font(.caption.monospaced()).foregroundStyle(.red)
           }
         }
-        // Make the whole row hit-test, not just the icon/text — the Spacer and
-        // trailing gap are transparent and otherwise swallow clicks.
-        .contentShape(Rectangle())
+        .tag(file.id)
+        .help(Self.displayName(file))
       }
-      .buttonStyle(.plain)
-      .help(Self.displayName(file))
     }
     .listStyle(.sidebar)
+  }
+
+  /// Reads the selected path for the highlight; on click, forwards the new
+  /// selection to `onTap` (ignoring a clear-to-nil, which a click can't produce).
+  private var selectionBinding: Binding<String?> {
+    Binding(get: { selectedPath }, set: { if let id = $0 { onTap(id) } })
   }
 
   private static func displayName(_ file: DiffFileSummary) -> String {

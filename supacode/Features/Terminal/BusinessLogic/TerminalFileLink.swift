@@ -21,18 +21,26 @@ nonisolated enum TerminalFileLink {
     guard !pathPart.isEmpty else { return nil }
 
     let base = (pwd?.isEmpty == false) ? URL(filePath: pwd!) : worktreeRoot
-    let candidate: URL =
+    let rawCandidate: URL =
       pathPart.hasPrefix("/")
-      ? URL(filePath: pathPart).standardizedFileURL
-      : base.appending(path: pathPart).standardizedFileURL
-
-    let root = worktreeRoot.standardizedFileURL
+      ? URL(filePath: pathPart)
+      : base.appending(path: pathPart)
+    // Resolve symlinks on BOTH sides before the containment check: `standardizedFileURL`
+    // only canonicalizes `.`/`..`, NOT symlinks, so a symlink inside the worktree pointing
+    // outside would otherwise pass the string-prefix check. Resolving both keeps containment
+    // honest and stays consistent on macOS where the worktree root may itself sit under a
+    // symlinked prefix (e.g. /var -> /private/var, /tmp -> /private/tmp).
+    let candidate = rawCandidate.standardizedFileURL.resolvingSymlinksInPath()
+    let root = worktreeRoot.standardizedFileURL.resolvingSymlinksInPath()
     let rootPath = root.path(percentEncoded: false)
     let candidatePath = candidate.path(percentEncoded: false)
     // Containment: candidate must be strictly under the root (not the root itself).
     let rootPrefix = rootPath.hasSuffix("/") ? rootPath : rootPath + "/"
     guard candidatePath.hasPrefix(rootPrefix) else { return nil }
-    guard fileManager.fileExists(atPath: candidatePath) else { return nil }
+    // Must be an existing regular file (not a directory).
+    var isDirectory: ObjCBool = false
+    guard fileManager.fileExists(atPath: candidatePath, isDirectory: &isDirectory), !isDirectory.boolValue
+    else { return nil }
 
     let relative = String(candidatePath.dropFirst(rootPrefix.count))
     guard !relative.isEmpty else { return nil }

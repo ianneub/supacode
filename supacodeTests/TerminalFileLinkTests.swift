@@ -92,4 +92,23 @@ struct TerminalFileLinkTests {
     let resolved = TerminalFileLink.resolve(rawToken: "README.md", pwd: "", worktreeRoot: root)
     #expect(resolved == TerminalFileLink.Resolved(relativePath: "README.md", line: nil))
   }
+
+  @Test func rejectsSymlinkEscapingWorktree() throws {
+    let root = try makeWorktree(); defer { try? FileManager.default.removeItem(at: root) }
+    // An out-of-worktree target the symlink points at.
+    let outside = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString + ".txt")
+    try "secret".write(to: outside, atomically: true, encoding: .utf8)
+    defer { try? FileManager.default.removeItem(at: outside) }
+    // A symlink INSIDE the worktree pointing OUTSIDE it.
+    let link = root.appending(path: "src/escape.txt")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outside)
+    // String-prefix containment would accept "src/escape.txt"; symlink resolution must reject it.
+    #expect(TerminalFileLink.resolve(rawToken: "src/escape.txt", pwd: root.path, worktreeRoot: root) == nil)
+  }
+
+  @Test func rejectsDirectoryToken() throws {
+    let root = try makeWorktree(); defer { try? FileManager.default.removeItem(at: root) }
+    // `src` exists but is a directory, not a file.
+    #expect(TerminalFileLink.resolve(rawToken: "src", pwd: root.path, worktreeRoot: root) == nil)
+  }
 }

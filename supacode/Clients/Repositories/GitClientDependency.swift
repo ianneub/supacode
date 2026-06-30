@@ -59,6 +59,8 @@ struct GitClientDependency: Sendable {
   var branchLineChanges: @Sendable (URL) async -> (added: Int, removed: Int)?
   var changedFiles: @Sendable (URL, DiffScope) async throws -> [DiffFileSummary]
   var fileDiff: @Sendable (URL, String, DiffScope) async throws -> FileDiff
+  /// File diff against an already-resolved base ref (file viewer's per-file fast path).
+  var fileDiffAgainstBaseRef: @Sendable (_ worktree: URL, _ path: String, _ baseRef: String) async throws -> FileDiff
   var remoteNames: @Sendable (_ repoRoot: URL) async throws -> [String]
   var fetchRemote: @Sendable (_ remote: String, _ repoRoot: URL) async throws -> Void
   var remoteInfo: @Sendable (_ repositoryRoot: URL) async -> GithubRemoteInfo?
@@ -141,6 +143,7 @@ extension GitClientDependency: DependencyKey {
       branchLineChanges: { await GitClient(shell: shell).branchLineChanges(at: $0) },
       changedFiles: { try await GitClient(shell: shell).changedFiles(at: $0, scope: $1) },
       fileDiff: { try await GitClient(shell: shell).fileDiff(at: $0, path: $1, scope: $2) },
+      fileDiffAgainstBaseRef: { try await GitClient(shell: shell).fileDiff(at: $0, path: $1, baseRef: $2) },
       remoteNames: { try await GitClient(shell: shell).remoteNames(for: $0) },
       fetchRemote: { remote, repoRoot in try await GitClient(shell: shell).fetchRemote(remote, for: repoRoot) },
       remoteInfo: { repositoryRoot in

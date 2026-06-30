@@ -15,6 +15,10 @@ struct FileViewerFeature {
     var targetLine: Int?
     var mode: Mode = .diff
     var content: FileViewerLoadState<Loaded> = .idle
+    /// Resolved diff base ref (for `.workingTreeVsBase`), cached once per session so
+    /// per-file diffs skip the `automaticWorktreeBaseRef` git lookup. `nil` until
+    /// resolved (the first load falls back to the scope-based diff).
+    var baseRef: String?
 
     enum Mode: Equatable, Sendable {
       case source
@@ -32,6 +36,8 @@ struct FileViewerFeature {
     case task
     case filesLoaded([DiffFileSummary])
     case filesFailed(String)
+    /// The diff base ref, resolved once at startup and cached in state.
+    case baseRefResolved(String)
     /// A filesystem tick while the pane is open: re-check the changed-file list.
     case refresh
     /// Result of a `refresh` file-list reload (no loading flash, keeps selection).
@@ -72,6 +78,11 @@ struct FileViewerFeature {
         let ticks = fileChanges.ticks
         return .merge(
           .run { send in
+            // Resolve the diff base ref once, before the first content load, so even
+            // the first diff (and all later ones) skip the per-file base lookup.
+            if scope == .workingTreeVsBase {
+              await send(.baseRefResolved(await gitClient.automaticWorktreeBaseRef(url) ?? "HEAD"))
+            }
             do {
               let files = try await gitClient.changedFiles(url, scope)
               await send(.filesLoaded(files))
@@ -89,6 +100,10 @@ struct FileViewerFeature {
           }
           .cancellable(id: CancelID.watch, cancelInFlight: true)
         )
+
+      case .baseRefResolved(let ref):
+        state.baseRef = ref
+        return .none
 
       case .filesLoaded(let files):
         state.files = .loaded(files)
@@ -227,11 +242,19 @@ struct FileViewerFeature {
     let url = state.worktreeURL
     let scope = state.diffScope
     let mode = state.mode
+    let baseRef = state.baseRef
     return .run { send in
       do {
         switch mode {
         case .diff:
-          let diff = try await gitClient.fileDiff(url, path, scope)
+          // Use the cached base ref when available (skips the per-file base lookup);
+          // fall back to the scope-based diff before it's resolved.
+          let diff: FileDiff
+          if scope == .workingTreeVsBase, let baseRef {
+            diff = try await gitClient.fileDiffAgainstBaseRef(url, path, baseRef)
+          } else {
+            diff = try await gitClient.fileDiff(url, path, scope)
+          }
           await send(.contentLoaded(State.Loaded(rawText: nil, fileDiff: diff)))
         case .source, .preview:
           let text = try await fileContent.read(url.appending(path: path))

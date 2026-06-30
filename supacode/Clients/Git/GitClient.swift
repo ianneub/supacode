@@ -1000,6 +1000,21 @@ struct GitClient {
     return UnifiedDiffParser.parse(raw, path: filePath)
   }
 
+  /// Same as `fileDiff(at:path:scope:)` for `.workingTreeVsBase`, but against an
+  /// already-resolved base ref — lets the file viewer resolve the base once per
+  /// session instead of paying `automaticWorktreeBaseRef` on every file open.
+  nonisolated func fileDiff(at worktreeURL: URL, path filePath: String, baseRef: String) async throws -> FileDiff {
+    let repoPath = worktreeURL.path(percentEncoded: false)
+    let raw = try await runGit(
+      operation: .fileDiff,
+      arguments: ["-C", repoPath, "diff", baseRef, "--", filePath]
+    )
+    if raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return syntheticAdditionDiff(filePath: filePath, worktreeURL: worktreeURL)
+    }
+    return UnifiedDiffParser.parse(raw, path: filePath)
+  }
+
   /// Builds the `git diff` ref/flag arguments for a scope. `.workingTreeVsBase`
   /// resolves the base ref via `automaticWorktreeBaseRef`, falling back to HEAD.
   nonisolated private func diffBaseArguments(for scope: DiffScope, worktreeURL: URL) async -> [String] {

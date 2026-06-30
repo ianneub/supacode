@@ -18,12 +18,16 @@ struct FileViewerFeatureTests {
     let store = TestStore(initialState: FileViewerFeature.State(worktreeURL: worktreeURL)) {
       FileViewerFeature()
     } withDependencies: {
+      $0.gitClient.automaticWorktreeBaseRef = { _ in "origin/main" }
       $0.gitClient.changedFiles = { _, _ in files }
-      $0.gitClient.fileDiff = { _, _, _ in diff }
+      $0.gitClient.fileDiffAgainstBaseRef = { _, _, _ in diff }
     }
 
     await store.send(.task) {
       $0.files = .loading
+    }
+    await store.receive(\.baseRefResolved) {
+      $0.baseRef = "origin/main"
     }
     await store.receive(\.filesLoaded) {
       $0.files = .loaded(files)
@@ -40,9 +44,11 @@ struct FileViewerFeatureTests {
     let store = TestStore(initialState: FileViewerFeature.State(worktreeURL: worktreeURL)) {
       FileViewerFeature()
     } withDependencies: {
+      $0.gitClient.automaticWorktreeBaseRef = { _ in "origin/main" }
       $0.gitClient.changedFiles = { _, _ in [] }
     }
     await store.send(.task) { $0.files = .loading }
+    await store.receive(\.baseRefResolved) { $0.baseRef = "origin/main" }
     await store.receive(\.filesLoaded) {
       $0.files = .loaded([])
     }
@@ -52,11 +58,13 @@ struct FileViewerFeatureTests {
     let store = TestStore(initialState: FileViewerFeature.State(worktreeURL: worktreeURL)) {
       FileViewerFeature()
     } withDependencies: {
+      $0.gitClient.automaticWorktreeBaseRef = { _ in "origin/main" }
       $0.gitClient.changedFiles = { _, _ in
         throw GitClientError.commandFailed(command: "changed-files", message: "")
       }
     }
     await store.send(.task) { $0.files = .loading }
+    await store.receive(\.baseRefResolved) { $0.baseRef = "origin/main" }
     await store.receive(\.filesFailed) {
       $0.files = .failed("Git command failed: changed-files")
     }
